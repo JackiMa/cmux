@@ -24,13 +24,23 @@ extension RemoteTmuxSessionMirror {
 
     /// Sends bytes only while the pane remains part of this session mirror.
     func sendInputBytes(_ data: Data, toPane tmuxPaneID: Int) -> Bool {
-        guard controlPaneIdByPane[tmuxPaneID] != nil else { return false }
+        guard controlPaneIdByPane[tmuxPaneID] != nil else {
+            #if DEBUG
+            cmuxDebugLog("remote.input.bytes.unmappedPane pane=\(tmuxPaneID) bytes=\(data.count)")
+            #endif
+            return false
+        }
         return connection.sendKeys(paneId: tmuxPaneID, data: data)
     }
 
     /// Sends a validated key only while the pane remains part of this session mirror.
     func sendNamedKey(_ key: RemoteTmuxKeyName, toPane tmuxPaneID: Int) -> Bool {
-        guard controlPaneIdByPane[tmuxPaneID] != nil else { return false }
+        guard controlPaneIdByPane[tmuxPaneID] != nil else {
+            #if DEBUG
+            cmuxDebugLog("remote.input.namedKey.unmappedPane pane=\(tmuxPaneID) key=\(key.value)")
+            #endif
+            return false
+        }
         return connection.sendKey(paneId: tmuxPaneID, key: key)
     }
 }

@@ -23,7 +23,13 @@ extension GhosttyNSView {
         switch terminalSurface.focusPlacement {
         case .workspace:
             guard let workspace = terminalSurface.owningWorkspace() else { return false }
-            return workspace.isFocusedTerminalInputSurface(terminalSurface.id)
+            if workspace.isFocusedTerminalInputSurface(terminalSurface.id) { return true }
+            // A mirrored tmux pane's active-pane projection is confirmed by the
+            // remote asynchronously. The pointer-down that lands in this pane
+            // has already asked tmux to select it, so the pane owns pointer
+            // input for its own surface even while that round trip is
+            // outstanding.
+            return workspace.remoteTmuxControlPane(surfaceID: terminalSurface.id) != nil
         case .rightSidebarDock:
             return TerminalPointerFocusActivationPolicy().shouldForwardToTerminal(
                 currentPanelId: terminalSurface.id,

@@ -6512,10 +6512,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let debugPoint = convert(event.locationInWindow, from: nil)
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
-        let shouldForwardTerminalActivation = terminalPointerShouldForwardActivation()
-        // Treat pointer-down as explicit focus intent before forwarding any terminal activation.
+        // Treat pointer-down as explicit focus intent, THEN decide whether to
+        // forward activation: the pointer-down is itself the focus event, so a
+        // pre-focus reading rejects the very gesture that grants authority and
+        // drops GHOSTTY_MOUSE_PRESS — the drag that follows selects nothing.
         focusFromPointerDown()
-        guard shouldForwardTerminalActivation else { return }
+        guard terminalPointerShouldForwardActivation() else { return }
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
