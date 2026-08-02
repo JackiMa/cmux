@@ -193,6 +193,7 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
     private func captureInputCommands(
         in harness: Harness,
         expectedCount: Int,
+        pane: Int = 4,
         _ sendInput: () throws -> Void
     ) async throws -> [String] {
         let inputPipe = Pipe()
@@ -219,7 +220,7 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             }
             let line = String(decoding: lineData, as: UTF8.self)
             lineData.removeAll(keepingCapacity: true)
-            guard line.hasPrefix("send-keys -t %4 ") else { continue }
+            guard line.hasPrefix("send-keys -t %\(pane) ") else { continue }
             commands.append(line)
             if commands.count == expectedCount { break }
         }
@@ -790,5 +791,52 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             harness.workspace.bonsplitController.focusedPaneId == containerPaneId,
             "An invalid nested focus identity must not escape into an outer workspace pane"
         )
+    }
+
+    /// A pane created AFTER attach into a window cmux first saw with ONE pane
+    /// must accept typed input, not just render output. Output routes through the
+    /// window mirror's `panelsByPaneId`, while input is gated on the session
+    /// mirror's `controlPaneIdByPane`; if the two diverge the pane renders
+    /// normally and drops every keystroke with no feedback.
+    @Test
+    func paneSplitAfterSinglePaneAttachAcceptsTypedInput() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let tabManager = try #require(AppDelegate.shared?.tabManagerFor(windowId: harness.windowId))
+        tabManager.selectWorkspace(harness.workspace)
+
+        // Attach: window @2 has exactly one pane, %4.
+        harness.publishListWindows(["@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] zsh"])
+        try harness.drainThroughPaneRects([2: ["%4 0 0 80 24 1 off :0 \"host\""]])
+
+        // Post-attach split: %5 appears and becomes active.
+        harness.connection.handleMessageForTesting(.layoutChange(
+            windowId: 2,
+            layout: "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}",
+            visibleLayout: nil,
+            zoomed: false
+        ))
+        try harness.drainThroughPaneRects([2: [
+            "%4 0 0 60 40 0 off :0 \"host\"",
+            "%5 61 0 59 40 1 off :1 \"host\"",
+        ]])
+        harness.connection.handleMessageForTesting(.windowPaneChanged(windowId: 2, paneId: 5))
+
+        let sessionMirror = try #require(harness.workspace.remoteTmuxSessionMirror)
+
+        // The map the input gate consults must know the post-attach pane.
+        #expect(
+            sessionMirror.controlPaneID(forPane: 5) != nil,
+            "A pane the mirror renders must own a control identity, or its input is dropped silently"
+        )
+
+        // And the bytes must actually reach the wire.
+        let commands = try await captureInputCommands(in: harness, expectedCount: 1, pane: 5) {
+            #expect(
+                sessionMirror.sendInput(toPane: 5, text: "x"),
+                "Typed input into the post-attach pane must be accepted"
+            )
+        }
+        #expect(commands == ["send-keys -t %5 -H 78"])
     }
 }

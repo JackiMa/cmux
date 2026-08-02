@@ -120,7 +120,12 @@ struct RemoteTmuxProjectedFocusInteractionTests {
         inactivePane.hostedView.surfaceView.desiredFocus = true
 
         #expect(activePane.hostedView.surfaceView.terminalPointerShouldForwardActivation())
-        #expect(!inactivePane.hostedView.surfaceView.terminalPointerShouldForwardActivation())
+        // Pointer authority follows the pointer, not the pending tmux
+        // projection: a pointer-down in a mirror pane is itself the
+        // select-pane request, so the non-projected pane must still forward
+        // its own press instead of dropping it while the round trip is
+        // outstanding.
+        #expect(inactivePane.hostedView.surfaceView.terminalPointerShouldForwardActivation())
     }
 
     @Test
@@ -186,6 +191,83 @@ struct RemoteTmuxProjectedFocusInteractionTests {
             activePane.hostedView.isSurfaceViewFirstResponder(),
             "Key repair must make the tmux-active inner pane the actual AppKit responder"
         )
+    }
+
+    /// The reported repro for "panes render but cannot be selected": with the
+    /// responder on one pane and the tmux projection on another, a pointer-down
+    /// in either pane must still latch GHOSTTY_MOUSE_PRESS so the drag that
+    /// follows extends a selection. Before the fix the activation gate was read
+    /// BEFORE the pointer-down moved focus, so the press that grants authority
+    /// was itself dropped and dragging selected nothing.
+    @Test
+    func pointerDownLatchesMousePressDespiteStaleResponderProjectionSplit() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let mirror = try splitInitiallySinglePaneWindow(in: harness)
+        let stalePane = try #require(mirror.panel(forPane: 4))
+        let activePane = try #require(mirror.panel(forPane: 5))
+        let appDelegate = try #require(AppDelegate.shared)
+        let mountedPortal = try RemoteTmuxPanePortalTestHarness(
+            panels: [stalePane, activePane],
+            appDelegate: appDelegate,
+            windowID: harness.windowId
+        )
+        defer { mountedPortal.tearDown() }
+
+        // Responder on pane 4, tmux projection on pane 5 — the exact split
+        // multi-pane mirrors sit in after a split or an active-pane change.
+        stalePane.hostedView.setVisibleInUI(true)
+        stalePane.hostedView.setActive(true)
+        stalePane.hostedView.moveFocus()
+        #expect(stalePane.hostedView.isSurfaceViewFirstResponder())
+        activePane.hostedView.setVisibleInUI(true)
+        activePane.hostedView.setActive(true)
+        activePane.hostedView.layoutSubtreeIfNeeded()
+        await Self.waitForLiveSurface(activePane.surface)
+        #expect(activePane.surface.hasLiveSurface)
+
+        // Put the responder back on the stale pane so the click below is the
+        // gesture that moves focus — the case the pre-fix ordering dropped.
+        stalePane.hostedView.moveFocus()
+        #expect(stalePane.hostedView.isSurfaceViewFirstResponder())
+
+        let surfaceView = activePane.hostedView.surfaceView
+        let pointInWindow = surfaceView.convert(
+            NSPoint(x: surfaceView.bounds.midX, y: surfaceView.bounds.midY),
+            to: nil
+        )
+        let mouseDown = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: pointInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: mountedPortal.window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        surfaceView.mouseDown(with: mouseDown)
+
+        #expect(
+            surfaceView.debugHasPendingLeftMouseReleaseForTesting(),
+            "The press that moves focus into a mirror pane must reach libghostty, or drag-selection is dead"
+        )
+    }
+
+    private static func waitForLiveSurface(_ surface: TerminalSurface) async {
+        guard !surface.hasLiveSurface else { return }
+        let previousOnRuntimeReady = surface.onRuntimeReady
+        defer { surface.onRuntimeReady = previousOnRuntimeReady }
+        let readiness = AsyncStream<Void> { continuation in
+            surface.onRuntimeReady = {
+                previousOnRuntimeReady?()
+                continuation.yield()
+                continuation.finish()
+            }
+        }
+        for await _ in readiness { break }
     }
 
     @Test
