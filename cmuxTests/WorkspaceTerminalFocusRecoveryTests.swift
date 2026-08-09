@@ -10,6 +10,155 @@ import CmuxTerminal
 
 @MainActor
 @Suite(.serialized)
+struct WorkspaceFocusReassertLoopTests {
+#if DEBUG
+    /// Mounts a TabManager-owned workspace's focused terminal into a real key
+    /// window and lands AppKit + Ghostty focus on it, so converged-reassert
+    /// tests exercise the same "focus already landed" state the production
+    /// storm had. Recovery flows (focus not yet landed) must stay unblocked,
+    /// so the gates only trip in this landed state.
+    private struct LandedFocusHarness {
+        let workspace: Workspace
+        let panelId: UUID
+        let panel: TerminalPanel
+        let window: NSWindow
+
+        private let appDelegate: AppDelegate
+        private let originalAppDelegate: AppDelegate?
+        private let originalTabManager: TabManager?
+        private let windowId: UUID
+
+        @MainActor
+        init() throws {
+            let originalAppDelegate = AppDelegate.shared
+            let appDelegate = originalAppDelegate ?? AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            self.originalTabManager = appDelegate.tabManager
+            self.windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            self.appDelegate = appDelegate
+            self.originalAppDelegate = originalAppDelegate
+
+            self.workspace = try #require(manager.selectedWorkspace, "Expected initial workspace")
+            self.panelId = try #require(workspace.focusedPanelId, "Expected focused panel")
+            self.panel = try #require(workspace.terminalPanel(for: panelId), "Expected terminal panel")
+
+            self.window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 220),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            let contentView = try #require(window.contentView, "Expected content view")
+            panel.hostedView.frame = contentView.bounds
+            contentView.addSubview(panel.hostedView)
+            panel.hostedView.setVisibleInUI(true)
+            panel.hostedView.setActive(true)
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            panel.hostedView.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+            var found: GhosttyNSView?
+            var stack: [NSView] = [panel.hostedView]
+            while let current = stack.popLast() {
+                if let surface = current as? GhosttyNSView {
+                    found = surface
+                    break
+                }
+                stack.append(contentsOf: current.subviews)
+            }
+            let surfaceView = try #require(found, "Expected terminal surface view")
+
+            // Land focus for real: AppKit first responder on the surface view
+            // and desired focus on the terminal surface.
+            #expect(window.makeFirstResponder(surfaceView))
+            panel.surface.setFocus(true)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            try #require(panel.hostedView.isSurfaceViewFirstResponder())
+            try #require(panel.surface.debugDesiredFocusState())
+        }
+
+        @MainActor
+        func tearDown() {
+            window.orderOut(nil)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = originalAppDelegate
+        }
+    }
+
+    @Test
+    func convergedDidFocusPaneDoesNotReapplyTabSelection() throws {
+        let harness = try LandedFocusHarness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let pane = try #require(workspace.bonsplitController.focusedPaneId)
+        _ = try #require(workspace.bonsplitController.selectedTab(inPane: pane))
+        let baseline = workspace.debugApplyTabSelectionNowCount
+
+        for _ in 0..<5 {
+            workspace.splitTabBar(workspace.bonsplitController, didFocusPane: pane)
+        }
+
+        #expect(workspace.debugApplyTabSelectionNowCount == baseline)
+    }
+
+    @Test
+    func convergedTerminalFirstResponderDoesNotReassertTabSelection() throws {
+        let harness = try LandedFocusHarness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let baseline = workspace.debugReassertingApplyTabSelectionNowCount
+
+        for _ in 0..<5 {
+            workspace.focusPanel(harness.panelId, trigger: .terminalFirstResponder)
+        }
+
+        #expect(workspace.debugReassertingApplyTabSelectionNowCount == baseline)
+    }
+
+    @Test
+    func identicalConvergedReassertsTripCircuitBreakerAndTargetChangeResetsIt() throws {
+        let harness = try LandedFocusHarness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let pane = try #require(workspace.bonsplitController.focusedPaneId)
+        let tab = try #require(workspace.bonsplitController.selectedTab(inPane: pane))
+        // Harness setup may leave a residual converged-reassert count within
+        // the breaker window; a non-reasserting apply resets the breaker so
+        // the threshold below is measured from zero.
+        workspace.applyTabSelection(tabId: tab.id, inPane: pane, reassertAppKitFocus: false)
+        let baseline = workspace.debugReassertingApplyTabSelectionNowCount
+
+        for _ in 0..<25 {
+            workspace.applyTabSelection(tabId: tab.id, inPane: pane, reassertAppKitFocus: true)
+        }
+
+        #expect(workspace.debugReassertingApplyTabSelectionNowCount - baseline == 20)
+
+        let splitPanel = try #require(
+            workspace.newTerminalSplit(from: harness.panelId, orientation: .horizontal)
+        )
+        let splitPane = try #require(workspace.paneId(forPanelId: splitPanel.id))
+        let splitTab = try #require(workspace.surfaceIdFromPanelId(splitPanel.id))
+        let resetBaseline = workspace.debugReassertingApplyTabSelectionNowCount
+
+        workspace.applyTabSelection(
+            tabId: splitTab,
+            inPane: splitPane,
+            reassertAppKitFocus: true
+        )
+
+        #expect(workspace.debugReassertingApplyTabSelectionNowCount == resetBaseline + 1)
+    }
+#endif
+}
+
+@MainActor
+@Suite(.serialized)
 struct WorkspaceTerminalFocusRecoverySwiftTests {
 #if DEBUG
     @Test

@@ -3667,6 +3667,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var focusReconcileScheduled = false
 #if DEBUG
     private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
+    private(set) var debugApplyTabSelectionNowCount: Int = 0
+    private(set) var debugReassertingApplyTabSelectionNowCount: Int = 0
     private var debugLastDidMoveTabTimestamp: TimeInterval = 0
     private var debugDidMoveTabEventCount: UInt64 = 0
 #endif
@@ -11852,6 +11854,12 @@ extension Workspace: BonsplitDelegate {
         focusTransactionId: UUID?,
         previousTerminalHostedView: GhosttySurfaceScrollView?
     ) {
+#if DEBUG
+        debugApplyTabSelectionNowCount += 1
+        if reassertAppKitFocus {
+            debugReassertingApplyTabSelectionNowCount += 1
+        }
+#endif
         let transactionId = focusTransactionId ?? UUID()
         let previousActiveFocusTransactionId = activeFocusTransactionId
         activeFocusTransactionId = transactionId
