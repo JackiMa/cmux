@@ -3665,8 +3665,19 @@ final class Workspace: Identifiable, ObservableObject {
     private(set) var activeFocusTransactionId: UUID?
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
+    private struct ReassertCircuitKey: Equatable {
+        let pane: PaneID
+        let tab: TabID
+        let panelId: UUID
+    }
+    private var reassertCircuitKey: ReassertCircuitKey?
+    private var reassertCircuitWindowStartedAt: TimeInterval = 0
+    private var convergedReassertApplyCount = 0
+    private static let reassertCircuitThreshold = 20
+    private static let reassertCircuitWindow: TimeInterval = 2
 #if DEBUG
     private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
+    private(set) var debugFocusReconcileFocusPaneCallCount: Int = 0
     private(set) var debugApplyTabSelectionNowCount: Int = 0
     private(set) var debugReassertingApplyTabSelectionNowCount: Int = 0
     private var debugLastDidMoveTabTimestamp: TimeInterval = 0
@@ -9951,6 +9962,9 @@ final class Workspace: Identifiable, ObservableObject {
         focusTransactionId: UUID? = nil
     ) {
         guard !remoteTmuxMirrorInterceptsFocusPanel(panelId, previousHostedView: previousHostedView, trigger: trigger, focusIntent: focusIntent) else { return }
+        if trigger != .terminalFirstResponder {
+            resetReassertCircuitBreaker()
+        }
         let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         markExplicitFocusIntent(on: panelId)
 #if DEBUG
@@ -9989,15 +10003,9 @@ final class Workspace: Identifiable, ObservableObject {
             return bonsplitController.focusedPaneId == targetPaneId &&
                 bonsplitController.selectedTab(inPane: targetPaneId)?.id == tabId
         }()
-        let targetHostedView = terminalPanel(for: panelId)?.hostedView
-        let targetHasPendingReparentSuppression = targetHostedView.map { hostedView in
-            hostedView.isSuppressingReparentFocusForLayoutFollowUp() ||
-                pendingReparentFocusSuppressionViews.values.contains { $0 === hostedView }
-        } ?? false
         let shouldSuppressReentrantRefocus =
             trigger == .terminalFirstResponder &&
-            selectionAlreadyConverged &&
-            targetHasPendingReparentSuppression
+            selectionAlreadyConverged
 #if DEBUG
         let targetPaneShort = targetPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
         let focusedPaneShort = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
@@ -10332,6 +10340,9 @@ final class Workspace: Identifiable, ObservableObject {
                 guard let selectedTab = bonsplitController.selectedTab(inPane: pane),
                       let mappedPanelId = panelIdFromSurfaceId(selectedTab.id),
                       panels[mappedPanelId] != nil else { continue }
+#if DEBUG
+                debugFocusReconcileFocusPaneCallCount += 1
+#endif
                 bonsplitController.focusPane(pane)
                 bonsplitController.selectTab(selectedTab.id)
                 targetPanelId = mappedPanelId
@@ -10345,6 +10356,9 @@ final class Workspace: Identifiable, ObservableObject {
                let fallbackPane = bonsplitController.allPaneIds.first(where: { paneId in
                    bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == fallbackTabId })
                }) {
+#if DEBUG
+                debugFocusReconcileFocusPaneCallCount += 1
+#endif
                 bonsplitController.focusPane(fallbackPane)
                 bonsplitController.selectTab(fallbackTabId)
             }
@@ -10389,6 +10403,12 @@ final class Workspace: Identifiable, ObservableObject {
             self.reconcileFocusState()
         }
     }
+
+#if DEBUG
+    func debugReconcileFocusStateForTesting() {
+        reconcileFocusState()
+    }
+#endif
 
     private func beginEventDrivenLayoutFollowUp(
         reason: String,
@@ -11834,6 +11854,49 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
+    private func resetReassertCircuitBreaker() {
+        reassertCircuitKey = nil
+        reassertCircuitWindowStartedAt = 0
+        convergedReassertApplyCount = 0
+    }
+
+    private func shouldBreakConvergedReassert(
+        tabId: TabID,
+        inPane pane: PaneID,
+        reassertAppKitFocus: Bool
+    ) -> Bool {
+        guard reassertAppKitFocus,
+              bonsplitController.focusedPaneId == pane,
+              bonsplitController.selectedTab(inPane: pane)?.id == tabId,
+              let panelId = panelIdFromSurfaceId(tabId),
+              focusedPanelId == panelId else {
+            resetReassertCircuitBreaker()
+            return false
+        }
+
+        let key = ReassertCircuitKey(pane: pane, tab: tabId, panelId: panelId)
+        let now = CACurrentMediaTime()
+        if reassertCircuitKey != key ||
+            now - reassertCircuitWindowStartedAt > Self.reassertCircuitWindow {
+            reassertCircuitKey = key
+            reassertCircuitWindowStartedAt = now
+            convergedReassertApplyCount = 0
+        }
+
+        guard convergedReassertApplyCount >= Self.reassertCircuitThreshold else {
+            convergedReassertApplyCount += 1
+            return false
+        }
+
+#if DEBUG
+        cmuxDebugLog(
+            "focus.reassert.circuitBreak pane=\(pane.id.uuidString.prefix(5)) " +
+            "tab=\(tabId.uuid.uuidString.prefix(5)) count=\(convergedReassertApplyCount + 1)"
+        )
+#endif
+        return true
+    }
+
     /// Hide browser portals for tabs that are no longer selected in the given pane.
     private func hideBrowserPortalsForDeselectedTabs(inPane pane: PaneID, selectedTabId: TabID) {
         for tab in bonsplitController.tabs(inPane: pane) {
@@ -11854,6 +11917,11 @@ extension Workspace: BonsplitDelegate {
         focusTransactionId: UUID?,
         previousTerminalHostedView: GhosttySurfaceScrollView?
     ) {
+        guard !shouldBreakConvergedReassert(
+            tabId: tabId,
+            inPane: pane,
+            reassertAppKitFocus: reassertAppKitFocus
+        ) else { return }
 #if DEBUG
         debugApplyTabSelectionNowCount += 1
         if reassertAppKitFocus {
@@ -12696,6 +12764,18 @@ extension Workspace: BonsplitDelegate {
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
         // When a pane is focused, focus its selected tab's panel
         guard let tab = controller.selectedTab(inPane: pane) else { return }
+        if controller.focusedPaneId == pane,
+           controller.selectedTab(inPane: pane)?.id == tab.id,
+           let panelId = panelIdFromSurfaceId(tab.id),
+           focusedPanelId == panelId {
+#if DEBUG
+            cmuxDebugLog(
+                "focus.didFocusPane.converged pane=\(pane.id.uuidString.prefix(5)) " +
+                "tab=\(tab.id.uuid.uuidString.prefix(5))"
+            )
+#endif
+            return
+        }
 #if DEBUG
         AppDelegate.shared?.focusLog.append(
             "Workspace.didFocusPane paneId=\(pane.id.uuidString) tabId=\(tab.id) focusedPane=\(controller.focusedPaneId?.id.uuidString ?? "nil")"
