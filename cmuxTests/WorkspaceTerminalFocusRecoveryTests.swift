@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Testing
 import CmuxTerminal
 
@@ -12,6 +13,24 @@ import CmuxTerminal
 @Suite(.serialized)
 struct WorkspaceFocusReassertLoopTests {
 #if DEBUG
+    private final class BonsplitCallSpy: BonsplitDelegate {
+        var focusPaneCallCount = 0
+        var selectTabCallCount = 0
+
+        func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
+            focusPaneCallCount += 1
+        }
+
+        func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
+            selectTabCallCount += 1
+        }
+
+        func reset() {
+            focusPaneCallCount = 0
+            selectTabCallCount = 0
+        }
+    }
+
     /// Mounts a TabManager-owned workspace's focused terminal into a real key
     /// window and lands AppKit + Ghostty focus on it, so converged-reassert
     /// tests exercise the same "focus already landed" state the production
@@ -153,6 +172,86 @@ struct WorkspaceFocusReassertLoopTests {
         )
 
         #expect(workspace.debugReassertingApplyTabSelectionNowCount == resetBaseline + 1)
+    }
+
+    @Test
+    func mirrorMutationSnapshotRestoreSkipsConvergedBonsplitCalls() throws {
+        let harness = try LandedFocusHarness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let snapshot = RemoteTmuxMirrorMutationSnapshot(workspace: workspace)
+        let originalDelegate = workspace.bonsplitController.delegate
+        let spy = BonsplitCallSpy()
+        workspace.bonsplitController.delegate = spy
+        defer { workspace.bonsplitController.delegate = originalDelegate }
+
+        snapshot.restore(in: workspace)
+
+        #expect(spy.focusPaneCallCount == 0)
+        #expect(spy.selectTabCallCount == 0)
+    }
+
+    @Test
+    func convergedFocusReconcileSkipsBonsplitCalls() throws {
+        let harness = try LandedFocusHarness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let originalDelegate = workspace.bonsplitController.delegate
+        let spy = BonsplitCallSpy()
+        workspace.bonsplitController.delegate = spy
+        defer { workspace.bonsplitController.delegate = originalDelegate }
+        let baseline = workspace.debugFocusReconcileFocusPaneCallCount
+
+        workspace.debugReconcileFocusStateForTesting()
+
+        #expect(workspace.debugFocusReconcileFocusPaneCallCount == baseline)
+        #expect(spy.focusPaneCallCount == 0)
+        #expect(spy.selectTabCallCount == 0)
+    }
+
+    @Test
+    func identicalFocusReconcilesTripCircuitBreakerAndTargetChangeResetsIt() throws {
+        let harness = try LandedFocusHarness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let originalPane = try #require(workspace.bonsplitController.focusedPaneId)
+        let splitPanel = try #require(
+            workspace.newTerminalSplit(from: harness.panelId, orientation: .horizontal)
+        )
+        let splitPane = try #require(workspace.paneId(forPanelId: splitPanel.id))
+        let badPane = originalPane == splitPane ? try #require(
+            workspace.bonsplitController.allPaneIds.first { $0 != splitPane }
+        ) : originalPane
+        let originalDelegate = workspace.bonsplitController.delegate
+        let spy = BonsplitCallSpy()
+        workspace.bonsplitController.delegate = spy
+        defer { workspace.bonsplitController.delegate = originalDelegate }
+        let bogusTab = try #require(
+            workspace.bonsplitController.createTab(title: "unmapped", inPane: badPane)
+        )
+        let changedBogusTab = try #require(
+            workspace.bonsplitController.createTab(title: "unmapped-2", inPane: badPane)
+        )
+
+        var reconcileFocusCalls = 0
+        var reconcileSelectCalls = 0
+        for _ in 0..<25 {
+            workspace.bonsplitController.selectTab(bogusTab)
+            spy.reset()
+            workspace.debugReconcileFocusStateForTesting()
+            reconcileFocusCalls += spy.focusPaneCallCount
+            reconcileSelectCalls += spy.selectTabCallCount
+        }
+
+        #expect(reconcileFocusCalls == 20)
+        #expect(reconcileSelectCalls == 0)
+
+        workspace.bonsplitController.selectTab(changedBogusTab)
+        spy.reset()
+        workspace.debugReconcileFocusStateForTesting()
+
+        #expect(spy.focusPaneCallCount == 1)
+        #expect(spy.selectTabCallCount == 0)
     }
 #endif
 }

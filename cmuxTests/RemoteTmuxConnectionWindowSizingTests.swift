@@ -16,6 +16,96 @@ import Testing
         )
     }
 
+    private struct ConnectedSizingFixture {
+        let connection: RemoteTmuxControlConnection
+        let writer: RemoteTmuxControlPipeWriter
+        let pipe: Pipe
+
+        @MainActor
+        func close() {
+            connection.stop()
+            writer.close()
+            try? pipe.fileHandleForReading.close()
+        }
+    }
+
+    private func makeConnectedSizingFixture() -> ConnectedSizingFixture {
+        let connection = makeConnection()
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-client-size-dedup-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 0, lines: [], isError: false)
+        )
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 1, lines: [], isError: false)
+        )
+        _ = pipe.fileHandleForReading.availableData
+        connection.pendingAttachRedrawKick = false
+        connection.supportsPerWindowSize = false
+        return ConnectedSizingFixture(connection: connection, writer: writer, pipe: pipe)
+    }
+
+    private func sizingSendCount(in data: Data) -> Int {
+        String(decoding: data, as: UTF8.self)
+            .split(separator: "\n")
+            .filter { $0.hasPrefix("refresh-client -C ") }
+            .count
+    }
+
+    @Test func sessionWideSizingDedupsSentSizeAndAllowsDifferentSize() async {
+        let fixture = makeConnectedSizingFixture()
+        defer { fixture.close() }
+
+        for _ in 0..<8 {
+            fixture.connection.setWindowSize(windowId: 3, columns: 136, rows: 36)
+        }
+        try? await Task.sleep(for: .milliseconds(250))
+        #expect(sizingSendCount(in: fixture.pipe.fileHandleForReading.availableData) == 1)
+        let sentCommandCount = fixture.connection.pendingCommandKindsForTesting.count
+
+        fixture.connection.setWindowSize(windowId: 3, columns: 136, rows: 36)
+        try? await Task.sleep(for: .milliseconds(250))
+        #expect(fixture.connection.pendingCommandKindsForTesting.count == sentCommandCount)
+
+        fixture.connection.setWindowSize(windowId: 3, columns: 137, rows: 36)
+        try? await Task.sleep(for: .milliseconds(250))
+        #expect(sizingSendCount(in: fixture.pipe.fileHandleForReading.availableData) == 1)
+    }
+
+    @Test func sessionWideSizingResendsStoredSizeAfterReconnect() async {
+        let fixture = makeConnectedSizingFixture()
+        defer { fixture.close() }
+
+        fixture.connection.setWindowSize(windowId: 3, columns: 136, rows: 36)
+        try? await Task.sleep(for: .milliseconds(250))
+        #expect(sizingSendCount(in: fixture.pipe.fileHandleForReading.availableData) == 1)
+
+        fixture.connection.beginReconnecting()
+        let reconnectPipe = Pipe()
+        let reconnectWriter = RemoteTmuxControlPipeWriter(
+            handle: reconnectPipe.fileHandleForWriting,
+            label: "remote-tmux-client-size-reconnect-dedup-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        fixture.connection.installStdinWriterForTesting(reconnectWriter)
+        defer {
+            reconnectWriter.close()
+            try? reconnectPipe.fileHandleForReading.close()
+        }
+        fixture.connection.handleMessageForTesting(.enter)
+        fixture.connection.reseedAfterReconnect()
+
+        #expect(sizingSendCount(in: reconnectPipe.fileHandleForReading.availableData) == 1)
+    }
+
     /// A single-pane surface can be seeded while its tab is still headless, then
     /// gain rows when the real window mounts. Only the verified pane-rect reply
     /// proves that every client-size constraint has landed; repairing from the
