@@ -85,6 +85,13 @@ extension RemoteTmuxControlConnection {
         lastClientSize = (columns, rows)
         lastSizingSendAt = .now
         guard connectionState == .connected else { return }
+        if let lastSentClientSize,
+           lastSentClientSize.columns == columns,
+           lastSentClientSize.rows == rows {
+            clientSizeDebounceTask?.cancel()
+            clientSizeDebounceTask = nil
+            return
+        }
         // Coalesce the layout-settle oscillation into a single send: (re)arm a short
         // trailing timer; only the last size in a burst actually goes out. The fired
         // timer is also the "settled" edge that consumes the attach redraw kick.
@@ -96,7 +103,8 @@ extension RemoteTmuxControlConnection {
                 return
             }
             guard let self, self.connectionState == .connected, let size = self.lastClientSize else { return }
-            self.send("refresh-client -C \(size.columns)x\(size.rows)")
+            guard self.send("refresh-client -C \(size.columns)x\(size.rows)") else { return }
+            self.lastSentClientSize = size
             // This send already applied the stored grid — the deferred first-connect
             // apply would only duplicate it (a deferred reconnect re-seed must stay).
             if self.pendingPostAttachAction == .applyClientSize {

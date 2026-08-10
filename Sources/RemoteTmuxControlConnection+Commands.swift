@@ -358,7 +358,9 @@ extension RemoteTmuxControlConnection {
         // this reseed's own list-windows restage, which is what re-issues them.
         // Clearing them here would be too late: the restage has already run.
         if let size = lastClientSize {
-            send("refresh-client -C \(size.columns)x\(size.rows)")
+            if send("refresh-client -C \(size.columns)x\(size.rows)") {
+                lastSentClientSize = size
+            }
         }
         // Re-pin every per-window size: pins are per-client state, and the
         // fresh ssh client starts with none (windows would sit at 80×24 or

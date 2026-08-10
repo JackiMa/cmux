@@ -39,10 +39,13 @@ struct RemoteTmuxMirrorMutationSnapshot {
 
         for selection in selectedTabs
         where workspace.bonsplitController.tabs(inPane: selection.paneId).contains(where: { $0.id == selection.tabId }) {
-            workspace.bonsplitController.selectTab(selection.tabId)
+            if workspace.bonsplitController.selectedTab(inPane: selection.paneId)?.id != selection.tabId {
+                workspace.bonsplitController.selectTab(selection.tabId)
+            }
         }
         if let focusedPaneId,
-           workspace.bonsplitController.allPaneIds.contains(focusedPaneId) {
+           workspace.bonsplitController.allPaneIds.contains(focusedPaneId),
+           workspace.bonsplitController.focusedPaneId != focusedPaneId {
             workspace.bonsplitController.focusPane(focusedPaneId)
         }
 

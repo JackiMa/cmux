@@ -3675,6 +3675,16 @@ final class Workspace: Identifiable, ObservableObject {
     private var convergedReassertApplyCount = 0
     private static let reassertCircuitThreshold = 20
     private static let reassertCircuitWindow: TimeInterval = 2
+    private struct FocusReconcileCircuitKey: Equatable {
+        let focusedPane: PaneID?
+        let selectedTab: TabID?
+        let targetPanelId: UUID
+    }
+    private var focusReconcileCircuitKey: FocusReconcileCircuitKey?
+    private var focusReconcileCircuitWindowStartedAt: TimeInterval = 0
+    private var identicalFocusReconcileCount = 0
+    private static let focusReconcileCircuitThreshold = 20
+    private static let focusReconcileCircuitWindow: TimeInterval = 2
 #if DEBUG
     private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
     private(set) var debugFocusReconcileFocusPaneCallCount: Int = 0
@@ -10329,6 +10339,11 @@ final class Workspace: Identifiable, ObservableObject {
         // Source of truth: bonsplit focused pane + selected tab.
         // AppKit first responder must converge to this model state, not the other way around.
         var targetPanelId: UUID?
+        var fallbackSelection: (pane: PaneID, tab: TabID)?
+        let focusedPaneBefore = bonsplitController.focusedPaneId
+        let selectedTabBefore = focusedPaneBefore.flatMap {
+            bonsplitController.selectedTab(inPane: $0)?.id
+        }
 
         if let focusedPane = bonsplitController.focusedPaneId,
            let focusedTab = bonsplitController.selectedTab(inPane: focusedPane),
@@ -10340,11 +10355,7 @@ final class Workspace: Identifiable, ObservableObject {
                 guard let selectedTab = bonsplitController.selectedTab(inPane: pane),
                       let mappedPanelId = panelIdFromSurfaceId(selectedTab.id),
                       panels[mappedPanelId] != nil else { continue }
-#if DEBUG
-                debugFocusReconcileFocusPaneCallCount += 1
-#endif
-                bonsplitController.focusPane(pane)
-                bonsplitController.selectTab(selectedTab.id)
+                fallbackSelection = (pane, selectedTab.id)
                 targetPanelId = mappedPanelId
                 break
             }
@@ -10356,15 +10367,31 @@ final class Workspace: Identifiable, ObservableObject {
                let fallbackPane = bonsplitController.allPaneIds.first(where: { paneId in
                    bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == fallbackTabId })
                }) {
-#if DEBUG
-                debugFocusReconcileFocusPaneCallCount += 1
-#endif
-                bonsplitController.focusPane(fallbackPane)
-                bonsplitController.selectTab(fallbackTabId)
+                fallbackSelection = (fallbackPane, fallbackTabId)
             }
         }
 
-        guard let targetPanelId, let targetPanel = panels[targetPanelId] else { return }
+        guard let targetPanelId, let targetPanel = panels[targetPanelId] else {
+            resetFocusReconcileCircuitBreaker()
+            return
+        }
+        guard !shouldBreakIdenticalFocusReconcile(
+            focusedPane: focusedPaneBefore,
+            selectedTab: selectedTabBefore,
+            targetPanelId: targetPanelId
+        ) else { return }
+
+        if let fallbackSelection {
+            if bonsplitController.focusedPaneId != fallbackSelection.pane {
+#if DEBUG
+                debugFocusReconcileFocusPaneCallCount += 1
+#endif
+                bonsplitController.focusPane(fallbackSelection.pane)
+            }
+            if bonsplitController.selectedTab(inPane: fallbackSelection.pane)?.id != fallbackSelection.tab {
+                bonsplitController.selectTab(fallbackSelection.tab)
+            }
+        }
 
         for (panelId, panel) in panels where panelId != targetPanelId {
             panel.unfocus()
@@ -10379,6 +10406,46 @@ final class Workspace: Identifiable, ObservableObject {
         }
         gitBranch = panelGitBranches[targetPanelId]
         pullRequest = panelPullRequests[targetPanelId]
+    }
+
+    private func resetFocusReconcileCircuitBreaker() {
+        focusReconcileCircuitKey = nil
+        focusReconcileCircuitWindowStartedAt = 0
+        identicalFocusReconcileCount = 0
+    }
+
+    private func shouldBreakIdenticalFocusReconcile(
+        focusedPane: PaneID?,
+        selectedTab: TabID?,
+        targetPanelId: UUID
+    ) -> Bool {
+        let key = FocusReconcileCircuitKey(
+            focusedPane: focusedPane,
+            selectedTab: selectedTab,
+            targetPanelId: targetPanelId
+        )
+        let now = CACurrentMediaTime()
+        if focusReconcileCircuitKey != key ||
+            now - focusReconcileCircuitWindowStartedAt > Self.focusReconcileCircuitWindow {
+            focusReconcileCircuitKey = key
+            focusReconcileCircuitWindowStartedAt = now
+            identicalFocusReconcileCount = 0
+        }
+
+        guard identicalFocusReconcileCount >= Self.focusReconcileCircuitThreshold else {
+            identicalFocusReconcileCount += 1
+            return false
+        }
+
+#if DEBUG
+        let pane = focusedPane.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let tab = selectedTab.map { String($0.uuid.uuidString.prefix(5)) } ?? "nil"
+        cmuxDebugLog(
+            "focus.reconcile.circuitBreak pane=\(pane) tab=\(tab) " +
+            "panel=\(targetPanelId.uuidString.prefix(5)) count=\(identicalFocusReconcileCount + 1)"
+        )
+#endif
+        return true
     }
 
     /// Reconcile focus/first-responder convergence.
