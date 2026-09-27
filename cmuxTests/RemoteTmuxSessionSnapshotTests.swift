@@ -32,6 +32,14 @@ import Testing
         let restoredManager = try #require(decoded.windows.first?.tabManager)
         #expect(restoredManager.workspaces.contains { $0.workspaceId == remote.id })
         #expect(restoredManager.selectedWorkspaceIndex == 1)
+        let remoteSnapshot = try #require(restoredManager.workspaces.first { $0.workspaceId == remote.id })
+        #expect(remoteSnapshot.remoteTmux?.host == host)
+        #expect(remoteSnapshot.remoteTmux?.sessionName == "agents")
+        if let local = manager.tabs.first(where: { !$0.isRemoteTmuxMirror }) {
+            manager.closeWorkspace(local, recordHistory: false)
+        }
+        let remoteOnly = try #require(delegate.sessionSnapshotForTesting())
+        #expect(remoteOnly.windows[0].tabManager.workspaces.map(\.workspaceId) == [remote.id])
     }
 
     @Test func savedRemoteTerminalsRestoreAsProcessFreeDisplays() throws {
@@ -52,6 +60,49 @@ import Testing
         #expect(!terminals.isEmpty)
         #expect(terminals.allSatisfy { $0.surface.ioMode == .manualMirror })
         #expect(terminals.allSatisfy { $0.surface.debugTmuxStartCommand() == nil })
+    }
+
+    @Test func reattachReusesSavedWorkspaceAndRetainsPreviewPane() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let source = Workspace(title: "agents", portOrdinal: 1)
+        let terminal = try #require(source.focusedPanelId)
+        let browser = try #require(source.newBrowserSplit(
+            from: terminal, orientation: .horizontal, url: URL(string: "about:blank"), focus: false
+        ))
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let host = RemoteTmuxHost(destination: "cmux-restore-test.invalid")
+        snapshot.remoteTmux = SessionRemoteTmuxWorkspaceSnapshot(
+            destination: host.destination, sessionName: "agents",
+            browserURLs: [browser.id.uuidString: "http://127.0.0.1:6013/#scalars"]
+        )
+        let remapped = workspace.restoreSessionSnapshot(snapshot)
+        let restoredBrowser = try #require(remapped[browser.id].flatMap { workspace.panels[$0] as? BrowserPanel })
+        #expect(workspace.bonsplitController.allPaneIds.count == 2)
+        #expect(workspace.remoteTmuxPreviewURLsByPanelId[restoredBrowser.id]?.remote.absoluteString == "http://127.0.0.1:6013/#scalars")
+
+        let controller = RemoteTmuxController()
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "agents")
+        controller.cacheConnection(connection)
+        defer { controller.detachAll() }
+        #expect(try controller.mirrorSession(host: host, sessionName: "agents", into: manager, restoring: workspace))
+        #expect(manager.tabs.count == 1)
+        #expect(controller.sessionMirror(host: host, sessionName: "agents")?.mirroredWorkspace === workspace)
+        #expect(workspace.panels[restoredBrowser.id] === restoredBrowser)
+        #expect(!controller.mirrorDiscoveredSessions(
+            host: host, sessions: [], into: manager
+        ).isEmpty)
+    }
+
+    @Test func invalidRemoteAttachmentNeverBecomesALocalLaunch() throws {
+        let workspace = Workspace(title: "invalid remote", portOrdinal: 0)
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        snapshot.remoteTmux = SessionRemoteTmuxWorkspaceSnapshot(destination: "-oProxyCommand=invalid", sessionName: "agents")
+        snapshot.panels[0].terminal?.tmuxStartCommand = "printf LOCAL_RESTORE_FORBIDDEN"
+        _ = workspace.restoreSessionSnapshot(snapshot)
+        #expect(snapshot.remoteTmux?.host == nil)
+        #expect(workspace.isRemoteTmuxMirror)
+        #expect(workspace.panels.values.compactMap { $0 as? TerminalPanel }.allSatisfy { $0.surface.ioMode == .manualMirror })
     }
 
     @Test func sessionSnapshotSkipsWindowWithOnlyRemoteTmuxMirrorWorkspaces() throws {

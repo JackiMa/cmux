@@ -78,6 +78,27 @@ forced command and the key's other restrictions, and back up the file first.
 Verify both the allowed port and a denied port with a fresh authentication;
 an already connected ControlMaster retains its previous authorization.
 
+## Remote workspace reopen
+
+Remote tmux workspaces now participate in the normal per-window session snapshot.
+The saved target contains the SSH destination, port, identity-file path, and tmux
+session name. Restore reserves process-free terminal displays in the same workspace,
+then reconnects after the restored workspace graph is installed. Existing tmux panes
+and their agent processes remain on the host; restore never replays their saved
+commands locally or creates a replacement remote session.
+
+The local browser/file preview pane is retained alongside the tmux window strip.
+For localhost links opened from a remote terminal, the snapshot saves the original
+remote URL. A fresh SSH connection allocates a new local forwarding port before
+loading that browser. It does not reuse the previous connection's transient port.
+A host that cannot be reached retains its attachment target; an explicit `ssh-tmux`
+retry reuses that workspace. Closing a workspace cancels an in-flight restore.
+
+`RemoteTmuxSessionSnapshotTests` covers snapshot round trips, remote-only windows,
+process-free placeholders, exact workspace reuse, preview placement, and invalid
+attachment targets. A live reopen check should compare tmux pane/process identities
+before and after closing the app, then verify the browser uses a working new forward.
+
 ## Agent restore diagnosis
 
 Each build tag owns a separate session snapshot in

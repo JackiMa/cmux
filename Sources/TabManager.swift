@@ -6808,6 +6808,11 @@ extension TabManager {
                 userInfo: [GhosttyNotificationKey.tabId: selectedTabId]
             )
         }
+        if let controller = AppDelegate.shared?.remoteTmuxController {
+            for workspace in newTabs {
+                workspace.reconnectRestoredRemoteTmux(using: controller)
+            }
+        }
         return restoredPanelIdsByWorkspaceIndex
     }
 

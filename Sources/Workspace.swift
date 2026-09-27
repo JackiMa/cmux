@@ -199,6 +199,7 @@ extension Workspace {
             environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
         snapshot.captureTodoState(from: self)
+        snapshot.remoteTmux = remoteTmuxSessionSnapshot
         snapshot.dock = _dockSplit?.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
@@ -219,6 +220,10 @@ extension Workspace {
         deferBrowserPanels: Bool = false
     ) -> [UUID: UUID] {
         guard acceptsRestoredSession(snapshot) else { return [:] }
+        remoteTmuxRestoreTask?.cancel()
+        remoteTmuxRestoreTask = nil
+        remoteTmuxRestoration = snapshot.remoteTmux
+        remoteTmuxPreviewURLsByPanelId.removeAll()
         let finishWork = beginTerminalGeometryTransition(.restore)
         defer { finishWork() }
         sessionRestoreLayoutSuppressionDepth += 1
@@ -320,6 +325,7 @@ extension Workspace {
             defer { suppressRemoteTerminalStartupForSessionRestoreScaffold = previousValue }
             return restoreSessionLayout(snapshot.layout)
         }()
+        isRemoteTmuxMirror = snapshot.remoteTmux != nil
         var oldToNewPanelIds: [UUID: UUID] = [:]
         let deviceProjectionPanelIDs = Set((snapshot.surfaceProjections ?? [])
             .filter { $0.resource.machine.isDevice }.map(\.panelID))
@@ -422,6 +428,7 @@ extension Workspace {
             terminalStartupRestoreCoordinator.commitPendingRestores()
         }
         restoreSurfaceProjections(snapshot.surfaceProjections, oldToNewPanelIds: oldToNewPanelIds)
+        restoreRemoteTmuxPreviewIdentities(oldToNewPanelIds)
         return oldToNewPanelIds
     }
 
@@ -1603,6 +1610,9 @@ extension Workspace {
                     restoresLegacyRemoteDirectoryWithoutProvenance(snapshot)))
         switch snapshot.type {
         case .terminal:
+            if isRemoteTmuxMirror {
+                return restoreRemoteTmuxDisplayPanel(snapshot, in: paneId)
+            }
             snapshot.terminal = snapshot.terminal?.reconcilingConfirmedAgentBinding(surfaceID: snapshot.id)
             if restoresDeviceProjection {
                 return restoreDeviceDisplayPanel(snapshot, in: paneId)
@@ -2268,6 +2278,12 @@ extension Workspace {
             }
             return terminalPanel.id
         case .browser:
+            if remoteTmuxBrowserURL(for: snapshot.id) != nil {
+                // A forwarded localhost port belongs to the previous SSH connection.
+                snapshot.browser?.urlString = "about:blank"
+                snapshot.browser?.backHistoryURLStrings = []
+                snapshot.browser?.forwardHistoryURLStrings = []
+            }
             if deferBrowserPanelsDuringSessionRestore,
                snapshot.browser != nil,
                !isRemoteTmuxMirror,
@@ -6712,7 +6728,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteConfiguration != nil
     }
 
-    /// Ephemeral remote tmux mirror; excluded from cmux session restore.
+    /// Remote topology is authoritative; session snapshots retain its attachment target.
     var isRemoteTmuxMirror: Bool = false {
         didSet {
             // Remote window tabs and local previews have different owners.
@@ -6721,6 +6737,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     /// Only browser/file creation may split the outer mirror workspace locally.
     var isCreatingRemoteTmuxPreviewSplit = false
+    var remoteTmuxRestoration: SessionRemoteTmuxWorkspaceSnapshot?
+    var remoteTmuxRestoreTask: Task<Void, Never>?
+    var remoteTmuxPreviewURLsByPanelId: [UUID: (remote: URL, local: URL)] = [:]
     weak var remoteTmuxSessionMirror: RemoteTmuxSessionMirror?
     /// Bound action for this mirror's outbound window-order mutation boundary.
     var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
@@ -6767,7 +6786,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     var isRestorableInSessionSnapshot: Bool {
-        if isRemoteTmuxMirror { return false }
+        if isRemoteTmuxMirror { return remoteTmuxSessionSnapshot != nil }
         if panels.values.contains(where: {
             switch $0.panelType {
             case .cloudVMLoading, .mobilePairing, .accountSignIn:
@@ -9825,7 +9844,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     ) -> BrowserPanel? {
         guard !isRetiredFromOwningTabManager, acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
         guard bonsplitController.allPaneIds.contains(paneId) else { return nil }
-        if isRemoteTmuxMirror, paneId != remoteTmuxPreviewPaneId() {
+        if isRemoteTmuxMirror, sessionRestoreLayoutSuppressionDepth == 0,
+           paneId != remoteTmuxPreviewPaneId() {
             if let previewPane = remoteTmuxPreviewPaneId() {
                 return newBrowserSurface(
                     inPane: previewPane, url: url, initialRequest: initialRequest,
@@ -10690,6 +10710,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Permanently retires this workspace before releasing its runtime resources.
     func retireFromOwningTabManager() {
         guard !isRetiredFromOwningTabManager else { return }
+        remoteTmuxRestoreTask?.cancel()
+        remoteTmuxRestoreTask = nil
         isRetiredFromOwningTabManager = true
         // Workspace retirement is the shared ownership boundary used by
         // window-close, stale-registration, and rejected-window cleanup. A

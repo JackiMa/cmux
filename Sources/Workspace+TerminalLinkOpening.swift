@@ -61,12 +61,16 @@ extension Workspace: TerminalLinkOpenContainer {
     }
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool = true) -> Bool {
-        guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
+        openTerminalBrowserPanel(url: url, sourcePanelId: sourcePanelId, focus: focus) != nil
+    }
+
+    func openTerminalBrowserPanel(url: URL, sourcePanelId: UUID, focus: Bool) -> BrowserPanel? {
+        guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return nil }
         if let targetPane = preferredRightSideTargetPane(fromPanelId: target.containerPanelID) {
             return newBrowserSurface(
                 inPane: targetPane, url: url, focus: focus,
                 allowsExternalBrowserFallback: !isRemoteTmuxMirror
-            ) != nil
+            )
         }
         return newBrowserSplit(
             from: target.containerPanelID,
@@ -74,7 +78,7 @@ extension Workspace: TerminalLinkOpenContainer {
             url: url,
             focus: focus,
             allowsExternalBrowserFallback: !isRemoteTmuxMirror
-        ) != nil
+        )
     }
 }
 

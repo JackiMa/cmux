@@ -218,13 +218,14 @@ struct TerminalLinkOpenCoordinator {
                     let localURL = try await controller.loopbackForwarder.forwardedURL(
                         remoteURL, host: context.host
                     )
-                    guard let container = containerResolver(request.sourceWorkspaceId, sourcePanelId),
-                          container.openTerminalBrowserLink(
+                    guard let workspace = containerResolver(request.sourceWorkspaceId, sourcePanelId) as? Workspace,
+                          let browser = workspace.openTerminalBrowserPanel(
                               url: localURL, sourcePanelId: sourcePanelId, focus: request.focus
                           ) else {
                         showRemoteTmuxLinkError(raw, reason: .browserUnavailable)
                         return
                     }
+                    workspace.remoteTmuxPreviewURLsByPanelId[browser.id] = (remoteURL, localURL)
                 case .needsRemoteDirectory:
                     showRemoteTmuxLinkError(raw, reason: .remoteDirectoryUnavailable)
                 case .needsRemoteHome:
