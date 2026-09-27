@@ -157,6 +157,15 @@ from an unreadable durable hook store. The CLI's existing bounded retry waits fo
 a complete census before launching; corrupt records and live owners still block
 automatic launch.
 
+Codex prompt-depth records belong to the process that produced them. A stopped
+or interrupted process can leave depth behind even after its turn ledger settled.
+A verified newer process may refresh that session's hook identity and resume
+binding; same-process or unverifiable startup callbacks cannot clear an active
+turn. This lets a resumed, idle Codex session remain restorable on the next app
+reopen without requiring another prompt. `CLICodexHookTimeoutRegressionTests`
+exercises the packaged CLI against completed, idle-with-depth, and interrupted
+records, while retaining the stale same-process callback checks.
+
 The embedded CLI also needs its SwiftPM localization bundle beside the binary.
 The build resource phase exposes the app's `CmuxFoundation_CmuxFoundation.bundle`
 under `Resources/bin/`. Without that link, CLI help and config validation crash
