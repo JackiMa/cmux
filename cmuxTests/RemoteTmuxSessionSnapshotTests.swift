@@ -9,6 +9,51 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct RemoteTmuxSessionSnapshotTests {
+    @Test func connectedMirrorSurvivesTheAppSnapshotRoundTrip() throws {
+        let previous = AppDelegate.shared
+        let delegate = AppDelegate()
+        AppDelegate.shared = delegate
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let host = RemoteTmuxHost(destination: "cmux-restore-test.invalid", port: 2222, identityFile: "/tmp/cmux-restore-test-key")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "agents")
+        delegate.remoteTmuxController.cacheConnection(connection)
+        _ = try delegate.remoteTmuxController.mirrorSession(host: host, sessionName: "agents", into: manager)
+        let remote = try #require(manager.tabs.first { $0.isRemoteTmuxMirror })
+        manager.selectWorkspace(remote)
+        let window = delegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            delegate.remoteTmuxController.detachAll()
+            delegate.unregisterMainWindowContextForTesting(windowId: window)
+            AppDelegate.shared = previous
+        }
+
+        let saved = try #require(delegate.sessionSnapshotForTesting())
+        let decoded = try JSONDecoder().decode(AppSessionSnapshot.self, from: JSONEncoder().encode(saved))
+        let restoredManager = try #require(decoded.windows.first?.tabManager)
+        #expect(restoredManager.workspaces.contains { $0.workspaceId == remote.id })
+        #expect(restoredManager.selectedWorkspaceIndex == 1)
+    }
+
+    @Test func savedRemoteTerminalsRestoreAsProcessFreeDisplays() throws {
+        let source = Workspace(title: "agents", portOrdinal: 0)
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        snapshot.panels[0].terminal?.tmuxStartCommand = "printf LOCAL_RESTORE_FORBIDDEN"
+        var encoded = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot)) as? [String: Any])
+        encoded["remoteTmux"] = [
+            "destination": "cmux-restore-test.invalid", "port": 2222,
+            "identityFile": "/tmp/cmux-restore-test-key", "sessionName": "agents"
+        ]
+        snapshot = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: JSONSerialization.data(withJSONObject: encoded))
+        let restored = Workspace(title: "restore", portOrdinal: 1)
+        _ = restored.restoreSessionSnapshot(snapshot)
+
+        #expect(restored.isRemoteTmuxMirror)
+        let terminals = restored.panels.values.compactMap { $0 as? TerminalPanel }
+        #expect(!terminals.isEmpty)
+        #expect(terminals.allSatisfy { $0.surface.ioMode == .manualMirror })
+        #expect(terminals.allSatisfy { $0.surface.debugTmuxStartCommand() == nil })
+    }
+
     @Test func sessionSnapshotSkipsWindowWithOnlyRemoteTmuxMirrorWorkspaces() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
