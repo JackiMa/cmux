@@ -108,4 +108,52 @@ import Testing
         #expect(unavailable.recovery?.generation == previous.generation)
         #expect(unavailable.recovery?.diagnosticReason == "scan timed out")
     }
+
+    @MainActor
+    @Test(arguments: [RestorableAgentKind.codex, .claude, .grok])
+    func confirmedRunningAgentRepairsRetiredAutomaticBinding(kind: RestorableAgentKind) throws {
+        let suite = "cmux-recovery-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelID = try #require(snapshot.panels.first?.id)
+        let identity = "recovery-\(UUID().uuidString)"
+        snapshot.panels[0].terminal = SessionTerminalPanelSnapshot(
+            agent: SessionRestorableAgentSnapshot(
+                kind: kind, sessionId: identity, workingDirectory: "/tmp", launchCommand: nil
+            ),
+            resumeBinding: SurfaceResumeBindingSnapshot(
+                kind: kind.rawValue, command: "/usr/bin/true", cwd: "/tmp",
+                checkpointId: identity, source: "agent-hook", autoResume: false,
+                approvalPolicy: .auto
+            ),
+            wasAgentRunning: true
+        ).recordingRecovery(surfaceID: panelID, previous: nil, freshEvidence: true)
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        let mapping = restored.restoreSessionSnapshot(snapshot, startupRestoreCommitOwner: .tabManagerTopology)
+        let restoredID = try #require(mapping[panelID])
+        let pending = try #require(restored.deferredAgentResumeRestoresByPanelId[restoredID])
+        #expect(pending.resumeBinding?.autoResume == true)
+        #expect(pending.resumeBinding?.checkpointId == identity)
+        #expect(restored.surfaceResumeBindingsByPanelId[restoredID]?.autoResume == true)
+    }
+
+    @Test func explicitManualApprovalDoesNotAutoResume() {
+        let surfaceID = UUID()
+        let snapshot = SessionTerminalPanelSnapshot(
+            agent: agent("manual-id"),
+            resumeBinding: SurfaceResumeBindingSnapshot(
+                kind: "codex", command: "/usr/bin/true", checkpointId: "manual-id",
+                source: "agent-hook", autoResume: false, approvalPolicy: .manual
+            ),
+            wasAgentRunning: true
+        ).recordingRecovery(surfaceID: surfaceID, previous: nil, freshEvidence: true)
+        #expect(snapshot.recoveryPlan(surfaceID: surfaceID).action == .shell)
+        #expect(snapshot.resumeBinding?.autoResume == false)
+    }
 }
