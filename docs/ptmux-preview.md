@@ -99,6 +99,17 @@ process-free placeholders, exact workspace reuse, preview placement, and invalid
 attachment targets. A live reopen check should compare tmux pane/process identities
 before and after closing the app, then verify the browser uses a working new forward.
 
+`RemoteTmuxPreviewIntegrationTests` is an opt-in SSH check of the terminal-link
+coordinator against a real image and web service. It creates one uniquely named
+temporary tmux session, verifies the downloaded SHA-256 and forwarded HTTP response,
+and removes its session. Normal test runs skip it. Supply a private JSON fixture
+with `destination`, optional `port` and `identityFile`, `imagePath`, `imageSHA256`,
+`webURL`, and `pageMarker`; it references an existing SSH identity without copying
+key material. Pass its path through `TEST_RUNNER_CMUX_LIVE_PTMUX_FIXTURE` when
+running the targeted native suite with the tag's DerivedData and test bundle ID.
+The test exercises the same coordinator invoked by terminal link clicks; it does
+not synthesize a physical Cmd-click gesture.
+
 ## Agent restore diagnosis
 
 Each build tag owns a separate session snapshot in
