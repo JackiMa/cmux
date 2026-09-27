@@ -73,6 +73,7 @@ extension Workspace {
         guard isRemoteTmuxMirror, let saved = remoteTmuxRestoration,
               let host = saved.host, let manager = owningTabManager,
               RemoteTmuxController.isEnabled,
+              !managedDevicePolicy.isEnforced(.disableRemoteConnections),
               !isRetiredFromOwningTabManager, remoteTmuxRestoreTask == nil else { return }
         remoteTmuxRestoreTask = Task { @MainActor [weak self, weak manager, weak controller] in
             guard let controller else { return }
@@ -80,6 +81,7 @@ extension Workspace {
             do {
                 try await controller.ensureControlMasterReadyForBurst(host: host)
                 guard let self, let manager, !self.isRetiredFromOwningTabManager,
+                      !self.managedDevicePolicy.isEnforced(.disableRemoteConnections),
                       manager.tabs.contains(where: { $0 === self }) else { return }
                 _ = try controller.mirrorSession(
                     host: host, sessionName: saved.sessionName, into: manager,
