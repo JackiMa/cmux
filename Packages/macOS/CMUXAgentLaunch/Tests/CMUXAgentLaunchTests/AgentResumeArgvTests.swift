@@ -3,6 +3,20 @@ import Testing
 
 @Suite("AgentResumeArgv")
 struct AgentResumeArgvTests {
+    @Test("Claude preserves the explicit empty tools list through capture and resume")
+    func claudeResumeKeepsEmptyToolList() throws {
+        let captured = try #require(AgentLaunchSanitizer.sanitizedLaunchArguments(
+            ["claude", "--tools", "", "--model", "sonnet"],
+            launcher: "claude",
+            fallbackKind: "claude"
+        ))
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "claude", sessionId: "saved-session", executablePath: nil, arguments: captured
+            ) == ["claude", "--resume", "saved-session", "--tools", "", "--model", "sonnet"]
+        )
+    }
+
     @Test("Grok resumes the saved conversation without new-session selectors", arguments: [
         ["--session-id", "new-session"],
         ["-s", "new-session"],
