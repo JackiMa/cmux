@@ -742,6 +742,11 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
         snapshot.panels[panelIndex].terminal?.agent = fixture.agent
         snapshot.panels[panelIndex].terminal?.wasAgentRunning = true
+        // The fixture replaces a shell snapshot with a running agent. Update
+        // its observation too so the test reaches live-owner admission.
+        snapshot.panels[panelIndex].terminal = snapshot.panels[panelIndex].terminal?.recordingRecovery(
+            surfaceID: sourcePanelID, previous: nil, freshEvidence: true
+        )
 
         let index = fixture.index
         let restored = Workspace(

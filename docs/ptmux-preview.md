@@ -101,6 +101,16 @@ active work can be stopped intentionally; migrating tags is not a live PTY
 transfer. `cmux restore <kind> <id>` runs in the invoking terminal and checks
 that terminal's saved identity. It must not be sent to an unrelated agent pane.
 
+The recovery reconciliation repairs that contradictory automatic binding when
+the versioned observation confirms the same agent on the same surface, the
+saved running state is true, and the binding still has automatic approval.
+Both workspace and Dock restores apply it before deferred admission. Fresh
+snapshot evidence also repairs the persisted copy. Manual and prompted
+approval, unknown/exited states, identity conflicts, other surfaces, and
+persistent-session attachment do not gain automatic launch permission. The
+existing live-owner check still prevents duplicate agent processes. Records
+already saved as shells keep their exact ID for explicit manual continuation.
+
 The embedded CLI also needs its SwiftPM localization bundle beside the binary.
 The build resource phase exposes the app's `CmuxFoundation_CmuxFoundation.bundle`
 under `Resources/bin/`. Without that link, CLI help and config validation crash

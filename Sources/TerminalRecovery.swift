@@ -143,7 +143,32 @@ extension SessionTerminalPanelSnapshot {
         } else {
             snapshot.recovery = candidate
         }
-        return snapshot
+        return freshEvidence ? snapshot.reconcilingConfirmedAgentBinding(surfaceID: surfaceID) : snapshot
+    }
+
+    /// Retirement clears the hook's automatic-launch bit without changing its
+    /// approval policy. A newer confirmed observation of the same running agent
+    /// must not carry that retired bit into the next deferred launch.
+    func reconcilingConfirmedAgentBinding(surfaceID: UUID) -> Self {
+        guard wasAgentRunning == true, let recovery,
+              recovery.surfaceID == surfaceID, recovery.state == .agent,
+              let observedAgent = recovery.agent else { return self }
+        var candidate = self
+        for keyPath in [\Self.resumeBinding, \Self.managedAgentResumeBinding] {
+            guard var binding = candidate[keyPath: keyPath],
+                  binding.isAgentHookBinding, binding.autoResume == false,
+                  binding.approvalPolicy == .auto,
+                  TerminalRecoveryAgentIdentity(kind: binding.kind, sessionID: binding.checkpointId) == observedAgent
+            else { continue }
+            binding.autoResume = true
+            candidate[keyPath: keyPath] = binding
+        }
+        // Keep attachment precedence, identity conflict checks, and ownership
+        // checks in the same recovery policy used by both terminal containers.
+        guard candidate.recoveryPlan(surfaceID: surfaceID).action == .resumeAgent(observedAgent) else {
+            return self
+        }
+        return candidate
     }
 
     func recoveryPlan(surfaceID: UUID? = nil, claimedOwnerSurfaceID: UUID? = nil) -> TerminalRecoveryPlan {
@@ -157,6 +182,11 @@ extension SessionTerminalPanelSnapshot {
         let hasLocalTmux = tmuxStartCommand?.contains("CMUX_LOCAL_TMUX=1") == true
         let hasAttachment = remotePTYSessionID?.isEmpty == false ||
             hasLocalTmux || hibernation != nil
+        let binding = managedAgentResumeBinding ?? resumeBinding
+        if !hasAttachment, binding?.isAgentHookBinding == true,
+           binding?.autoResume != true, binding?.approvalPolicy == .manual {
+            return TerminalRecoveryPlan(action: .shell, reason: "agent binding requires manual resume")
+        }
         if !hasAttachment, observation.state == .agent,
            let observedAgent = observation.agent,
            (savedIdentities.isEmpty || savedIdentities.contains(where: { $0 != observedAgent })) {

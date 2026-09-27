@@ -1603,6 +1603,7 @@ extension Workspace {
                     restoresLegacyRemoteDirectoryWithoutProvenance(snapshot)))
         switch snapshot.type {
         case .terminal:
+            snapshot.terminal = snapshot.terminal?.reconcilingConfirmedAgentBinding(surfaceID: snapshot.id)
             if restoresDeviceProjection {
                 return restoreDeviceDisplayPanel(snapshot, in: paneId)
             }
