@@ -143,6 +143,14 @@ persistent-session attachment do not gain automatic launch permission. The
 existing live-owner check still prevents duplicate agent processes. Records
 already saved as shells keep their exact ID for explicit manual continuation.
 
+Resume arguments also preserve the existing conversation's identity and options.
+Grok's `--session-id` / `-s` and `--fork-session` selectors are removed before
+adding the saved resume ID; older captures with a dangling `--session-id` are
+handled as well. Claude's explicit empty variadic values, such as `--tools ''`,
+remain empty arguments through capture and resume. Dropping that argument leaves
+an invalid command and loses the user's tool restriction. `AgentResumeArgvTests`
+checks both paths through the launch sanitizer and resume command builder.
+
 The embedded CLI also needs its SwiftPM localization bundle beside the binary.
 The build resource phase exposes the app's `CmuxFoundation_CmuxFoundation.bundle`
 under `Resources/bin/`. Without that link, CLI help and config validation crash
