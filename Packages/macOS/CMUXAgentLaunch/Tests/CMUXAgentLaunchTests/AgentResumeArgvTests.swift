@@ -3,6 +3,26 @@ import Testing
 
 @Suite("AgentResumeArgv")
 struct AgentResumeArgvTests {
+    @Test("Grok resumes the saved conversation without new-session selectors", arguments: [
+        ["--session-id", "new-session"],
+        ["-s", "new-session"],
+        ["--session-id=new-session"],
+        ["-s=new-session"],
+        ["--resume", "parent-session", "--fork-session", "--session-id", "new-session"],
+        // Older captures kept the flag but dropped its value as a positional prompt.
+        ["--session-id"],
+    ])
+    func grokResumeDropsNewSessionSelectors(selectors: [String]) {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "grok",
+                sessionId: "saved-session",
+                executablePath: "/opt/bin/grok",
+                arguments: ["/opt/bin/grok"] + selectors + ["--model", "grok-4", "--sandbox", "read-only"]
+            ) == ["/opt/bin/grok", "-r", "saved-session", "--model", "grok-4", "--sandbox", "read-only"]
+        )
+    }
+
     @Test("Built-in --option style kinds", arguments: [
         ("claude", "claude", ["claude", "--resume", "SID"]),
         ("grok", "grok", ["grok", "-r", "SID"]),
