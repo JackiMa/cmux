@@ -71,6 +71,44 @@ HTTP request receives an empty response. Check the actual forwarded response,
 not only whether a local port is listening. Changes to SSH authorization require
 the owner's approval and a new SSH connection to take effect.
 
+For a single approved preview port, `permitopen="127.0.0.1:6013"` limits
+the key's TCP destinations. If replacing `no-port-forwarding`, also constrain
+`permitlisten` so reverse listeners do not become unrestricted. Preserve the
+forced command and the key's other restrictions, and back up the file first.
+Verify both the allowed port and a denied port with a fresh authentication;
+an already connected ControlMaster retains its previous authorization.
+
+## Agent restore diagnosis
+
+Each build tag owns a separate session snapshot in
+`~/Library/Application Support/cmux/`. The `-previous.json` file holds the
+startup backup. Back up both files before another restart when investigating
+a missed restore. Do not copy one tag's snapshot over a running app's file.
+
+`terminal.autoResumeAgentSessions` defaults to `true` in this fork. A saved
+session ID alone does not trigger automatic resume: the terminal must have
+been confirmed to contain a running agent, and its binding must permit the
+launch. A saved shell keeps its last agent available for manual continuation.
+An agent still running in another cmux instance also prevents a duplicate
+launch. Remote tmux sessions are reattached rather than relaunched locally.
+
+The 2026-09-27 investigation found both `fix-ptmux` and `ptmux-preview` running.
+The old instance still contained two Codex processes and a Grok process. The
+new instance's startup backup included shell records and a Codex hook binding
+with `autoResume=false`; its deferred restore was cancelled. Those are
+different cases from a missing session ID. Preserve the old instance until its
+active work can be stopped intentionally; migrating tags is not a live PTY
+transfer. `cmux restore <kind> <id>` runs in the invoking terminal and checks
+that terminal's saved identity. It must not be sent to an unrelated agent pane.
+
+The embedded CLI also needs its SwiftPM localization bundle beside the binary.
+The build resource phase exposes the app's `CmuxFoundation_CmuxFoundation.bundle`
+under `Resources/bin/`. Without that link, CLI help and config validation crash
+even though socket commands such as `ping` work. Verify the packaged CLI, with
+no `PACKAGE_RESOURCE_BUNDLE_PATH` override, rather than the top-level build
+product. `tests/test_build_app_bundled_resources.sh` exercises cold and cached
+resource installation and repair of a missing CLI resource link.
+
 The separation between tmux windows and a local browser is also proposed in
 [upstream PR #9861](https://github.com/manaflow-ai/cmux/pull/9861). This fork's
 preview pane additionally hosts downloaded files. Keep fixes scoped to this
