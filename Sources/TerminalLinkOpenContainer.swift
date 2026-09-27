@@ -8,6 +8,7 @@ protocol TerminalLinkOpenContainer: AnyObject {
 
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String?
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool
+    func remoteTmuxPreviewContext(for sourcePanelId: UUID) -> RemoteTmuxPreviewContext?
 
     func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget?
 
@@ -30,4 +31,13 @@ extension TerminalLinkOpenContainer {
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
         openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, focus: true)
     }
+}
+
+struct RemoteTmuxPreviewContext: Sendable {
+    let host: RemoteTmuxHost
+    let cwd: String?
+}
+
+extension TerminalLinkOpenContainer {
+    func remoteTmuxPreviewContext(for sourcePanelId: UUID) -> RemoteTmuxPreviewContext? { nil }
 }

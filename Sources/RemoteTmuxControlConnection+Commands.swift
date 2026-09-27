@@ -414,7 +414,9 @@ extension RemoteTmuxControlConnection {
         // recovery after that peer leaves.
         windowClaimParityRearmsSpent.removeAll()
         if let size = lastClientSize {
-            send("refresh-client -C \(size.columns)x\(size.rows)")
+            if send("refresh-client -C \(size.columns)x\(size.rows)") {
+                lastSentClientSize = size
+            }
         }
         if supportsPerWindowSize {
             for (windowId, size) in lastWindowSizes.sorted(by: { $0.key < $1.key }) {

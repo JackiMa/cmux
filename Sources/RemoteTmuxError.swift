@@ -23,6 +23,7 @@ enum RemoteTmuxError: Error, Sendable, Equatable {
 
     /// The remote host has no tmux binary anywhere cmux's resolver probes.
     case tmuxNotFound(destination: String)
+    case sessionNotFound(name: String, destination: String)
 }
 
 extension RemoteTmuxError {
@@ -42,6 +43,9 @@ extension RemoteTmuxError {
     /// `indicatesProxyCommandTransportClosed`).
     var message: String {
         switch self {
+        case let .sessionNotFound(name, destination):
+            let format = String(localized: "remoteTmux.error.sessionNotFound", defaultValue: "tmux session '%@' was not found on %@ after restore")
+            return String(format: format, Self.sanitizedDetail(name), Self.sanitizedDetail(destination))
         case let .commandFailed(exitCode, stderr):
             let detail = Self.sanitizedDetail(stderr)
             if detail.isEmpty {

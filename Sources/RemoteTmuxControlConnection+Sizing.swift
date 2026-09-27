@@ -85,6 +85,13 @@ extension RemoteTmuxControlConnection {
         lastClientSize = (columns, rows)
         lastSizingSendAt = .now
         guard connectionState == .connected else { return }
+        if let lastSentClientSize,
+           lastSentClientSize.columns == columns,
+           lastSentClientSize.rows == rows {
+            clientSizeDebounceTask?.cancel()
+            clientSizeDebounceTask = nil
+            return
+        }
         // Coalesce the layout-settle oscillation into a single send: (re)arm a short
         // trailing timer; only the last size in a burst actually goes out. The fired
         // timer is also the "settled" edge that consumes the attach redraw kick.
@@ -96,7 +103,8 @@ extension RemoteTmuxControlConnection {
                 return
             }
             guard let self, self.connectionState == .connected, let size = self.lastClientSize else { return }
-            self.send("refresh-client -C \(size.columns)x\(size.rows)")
+            guard self.send("refresh-client -C \(size.columns)x\(size.rows)") else { return }
+            self.lastSentClientSize = size
             // This send already applied the stored grid — the deferred first-connect
             // apply would only duplicate it (a deferred reconnect re-seed must stay).
             if self.pendingPostAttachAction == .applyClientSize {
@@ -398,7 +406,8 @@ extension RemoteTmuxControlConnection {
             // to force — and a shrink at the captured (now stale) size would flash
             // wrong dimensions at the remote apps.
             guard let current = self.lastClientSize, current == size else { return }
-            self.send("refresh-client -C \(size.columns)x\(size.rows - 1)")
+            guard self.send("refresh-client -C \(size.columns)x\(size.rows - 1)") else { return }
+            self.lastSentClientSize = (size.columns, size.rows - 1)
             do {
                 try await ContinuousClock().sleep(for: .milliseconds(Self.attachRedrawKickGapMs))
             } catch {
@@ -410,7 +419,9 @@ extension RemoteTmuxControlConnection {
             #if DEBUG
             cmuxDebugLog("remote.size.kick restore to \(restore.columns)x\(restore.rows)")
             #endif
-            self.send("refresh-client -C \(restore.columns)x\(restore.rows)")
+            if self.send("refresh-client -C \(restore.columns)x\(restore.rows)") {
+                self.lastSentClientSize = restore
+            }
         }
     }
 

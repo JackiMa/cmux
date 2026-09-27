@@ -557,6 +557,36 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
     }
 
     @Test
+    func paneRenderedBeforeTopologyRebuildCanAcceptInputImmediately() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 abcd,80x24,0,0,4 abcd,80x24,0,0,4 [] work",
+        ])
+        try harness.drainThroughPaneRects([2: ["%4 0 0 80 24 1 off :0 \"host\""]])
+
+        let owner = try #require(harness.workspace.remoteTmuxSessionMirror)
+        let panelId = try #require(owner.panelIdByWindow[2])
+        let layout = RemoteTmuxLayoutNode(
+            width: 80, height: 24, x: 0, y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(width: 39, height: 24, x: 0, y: 0, content: .pane(4)),
+                RemoteTmuxLayoutNode(width: 40, height: 24, x: 40, y: 0, content: .pane(5)),
+            ])
+        )
+        #expect(owner.controlPaneID(forPane: 5) == nil)
+        owner.reconcileWindowMirror(
+            windowId: 2, panelId: panelId,
+            window: RemoteTmuxWindow(id: 2, width: 80, height: 24, layout: layout),
+            in: harness.workspace
+        )
+
+        #expect(owner.controlPaneID(forPane: 5) != nil)
+        #expect(owner.windowIdByPane[5] == 2)
+        #expect(owner.sendInputBytes(Data("x".utf8), toPane: 5))
+    }
+
+    @Test
     func unresolvedSessionMirrorActivePaneFailsClosed() throws {
         let harness = try Harness()
         defer { harness.tearDown() }

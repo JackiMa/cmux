@@ -17,6 +17,9 @@ import OSLog
 final class RemoteTmuxController {
     typealias MirrorTabActivity = RemoteTmuxMirrorTabActivity
 
+    let loopbackForwarder = RemoteTmuxLoopbackForwarder()
+    let previewFetcher = RemoteTmuxPreviewFetcher()
+
     /// Diagnostic logger (not user-facing) for mirror lifecycle events such as a
     /// ControlMaster that couldn't be confirmed ready before the attach burst.
     nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app", category: "RemoteTmux")

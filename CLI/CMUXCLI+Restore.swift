@@ -72,9 +72,11 @@ extension CMUXCLI {
             throw loggedRestoreError(
                 stage: "record.kind-mismatch",
                 detail: "expected=\(expectedKind) actual=\(record.kind)",
-                message: String(
-                    localized: "cli.restore.error.kindMismatch",
-                    defaultValue: "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record."
+                message: restoreMismatchMessage(
+                    callingSurfaceID: processEnvironment["CMUX_SURFACE_ID"] ?? surfaceID,
+                    surfaceID: surfaceID, record: record,
+                    requestedKind: expectedKind, requestedCheckpointID: selector.checkpointID,
+                    kindMismatch: true
                 )
             )
         }
@@ -83,9 +85,12 @@ extension CMUXCLI {
             throw loggedRestoreError(
                 stage: "record.checkpoint-mismatch",
                 detail: "expected=\(expectedCheckpointID) actual=\(record.checkpointID ?? "none")",
-                message: String(
-                    localized: "cli.restore.error.checkpointMismatch",
-                    defaultValue: "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record."
+                message: restoreMismatchMessage(
+                    callingSurfaceID: processEnvironment["CMUX_SURFACE_ID"] ?? surfaceID,
+                    surfaceID: surfaceID, record: record,
+                    requestedKind: selector.kind ?? record.kind,
+                    requestedCheckpointID: expectedCheckpointID,
+                    kindMismatch: false
                 )
             )
         }
@@ -445,6 +450,24 @@ extension CMUXCLI {
 
     private func restoreSelector(_ arguments: [String]) throws -> RestoreSelector {
         try continuationSelector(arguments, verb: .restore)
+    }
+
+    func restoreMismatchMessage(
+        callingSurfaceID: String,
+        surfaceID: String,
+        record: RestoreRecord,
+        requestedKind: String,
+        requestedCheckpointID: String?,
+        kindMismatch: Bool
+    ) -> String {
+        let format = kindMismatch
+            ? String(localized: "cli.restore.error.kindMismatch", defaultValue: "restore: calling surface %@; surface %@ records %@/%@; requested %@/%@. Run 'cmux restore --surface' in this terminal for its current record.")
+            : String(localized: "cli.restore.error.checkpointMismatch", defaultValue: "restore: calling surface %@; surface %@ records %@/%@; requested %@/%@. Run 'cmux restore --surface' in this terminal for its current record.")
+        return String(
+            format: format,
+            callingSurfaceID, surfaceID, record.kind, record.checkpointID ?? "none",
+            requestedKind, requestedCheckpointID ?? "none"
+        )
     }
 
     func restoreRecord(

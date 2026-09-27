@@ -6,7 +6,8 @@ extension RemoteTmuxController {
     func attachHost(
         host: RemoteTmuxHost,
         windowTarget: RemoteTmuxAttachWindowTarget,
-        activate: Bool
+        activate: Bool,
+        onlySession: String? = nil
     ) async throws -> RemoteTmuxAttachOutcome {
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
@@ -33,7 +34,9 @@ extension RemoteTmuxController {
 
         let sessions: [RemoteTmuxSession]
         do {
-            sessions = try await transport(for: host).discoverMirrorSessions(createIfEmpty: true)
+            sessions = try await transport(for: host).discoverMirrorSessions(
+                createIfEmpty: true, onlySession: onlySession
+            )
         } catch let error as RemoteTmuxError {
             if case .commandFailed(_, let stderr) = error,
                RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr) {

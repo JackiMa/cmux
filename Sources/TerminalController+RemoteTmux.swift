@@ -125,9 +125,9 @@ extension TerminalController {
         }
     }
 
-    /// `remote.tmux.mirror` — mirror every tmux session on a host as its own
-    /// sidebar workspace in the resolved window. Params: `host` (required),
-    /// optional `port`, `identity_file`, `activate`, and routing selectors.
+    /// `remote.tmux.mirror` — mirror tmux sessions on a host as sidebar workspaces
+    /// in the resolved window. Params: `host` (required), optional `port`,
+    /// `identity_file`, `only_session`, `activate`, and routing selectors.
     nonisolated func v2RemoteTmuxMirror(id: Any?, params: [String: Any]) -> String {
         guard ManagedRemoteConnectionsPolicy.isEnabled else {
             return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
@@ -140,6 +140,9 @@ extension TerminalController {
         }
         let activate = Self.remoteTmuxActivate(from: params)
         let routing = remoteTmuxRouting(from: params)
+        guard let onlySession = Self.remoteTmuxOnlySession(from: params) else {
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.invalidSession", defaultValue: "invalid tmux session name"))
+        }
         return v2VmCall(id: id, timeoutSeconds: 60) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
             else {
@@ -151,7 +154,8 @@ extension TerminalController {
             let outcome = try await controller.attachHost(
                 host: host,
                 windowTarget: windowTarget,
-                activate: activate
+                activate: activate,
+                onlySession: onlySession
             )
             switch outcome {
             case .mirrored(let windowId, let workspaceIds):
@@ -171,9 +175,9 @@ extension TerminalController {
         }
     }
 
-    /// `remote.tmux.window` — mirror every tmux session on a host into a
-    /// dedicated new window. Params: `host` (required), optional `port`,
-    /// `identity_file`, and `activate`.
+    /// `remote.tmux.window` — mirror tmux sessions on a host into a dedicated
+    /// new window. Params: `host` (required), optional `port`, `identity_file`,
+    /// `only_session`, and `activate`.
     nonisolated func v2RemoteTmuxWindow(id: Any?, params: [String: Any]) -> String {
         guard ManagedRemoteConnectionsPolicy.isEnabled else {
             return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
@@ -185,6 +189,9 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
         let activate = Self.remoteTmuxActivate(from: params)
+        guard let onlySession = Self.remoteTmuxOnlySession(from: params) else {
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.invalidSession", defaultValue: "invalid tmux session name"))
+        }
         return v2VmCall(id: id, timeoutSeconds: 60) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
             else {
@@ -193,7 +200,8 @@ extension TerminalController {
             let outcome = try await controller.attachHost(
                 host: host,
                 windowTarget: .dedicatedNewWindow,
-                activate: activate
+                activate: activate,
+                onlySession: onlySession
             )
             switch outcome {
             case .mirrored(let windowId, let workspaceIds):
@@ -228,6 +236,16 @@ extension TerminalController {
 
     private nonisolated static func remoteTmuxActivate(from params: [String: Any]) -> Bool {
         (params["activate"] as? Bool) ?? false
+    }
+
+    /// Outer optional distinguishes a missing filter from an invalid supplied value.
+    private nonisolated static func remoteTmuxOnlySession(from params: [String: Any]) -> String?? {
+        guard let raw = params["only_session"] else { return .some(nil) }
+        guard let name = raw as? String,
+              !name.isEmpty,
+              !name.hasPrefix("-"),
+              !remoteTmuxValueHasHiddenCharacter(name) else { return nil }
+        return .some(name)
     }
 
     @MainActor

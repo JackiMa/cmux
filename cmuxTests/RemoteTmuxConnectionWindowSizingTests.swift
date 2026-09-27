@@ -354,6 +354,34 @@ import Testing
         #expect(connection.windowSizeDebounceTasks[4] == nil)
     }
 
+    @Test func replayedClientSizeBecomesDedupBaseline() {
+        let connection = makeConnection()
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-client-size-dedup-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        defer {
+            connection.stop()
+            writer.close()
+            try? pipe.fileHandleForReading.close()
+        }
+
+        connection.lastClientSize = (columns: 120, rows: 40)
+        connection.replayRecordedSizeClaims()
+        #expect(connection.lastSentClientSize?.columns == 120)
+        #expect(connection.lastSentClientSize?.rows == 40)
+
+        connection.clientSizeDebounceTask = Task {}
+        connection.setClientSize(columns: 120, rows: 40)
+        #expect(connection.clientSizeDebounceTask == nil)
+        #expect(connection.lastSentClientSize?.columns == 120)
+    }
+
     @Test func pendingPaneRectPublicationIsSizingSettlementWork() {
         let connection = makeConnection()
         connection.pendingLayouts[4] = RemoteTmuxPendingLayout(

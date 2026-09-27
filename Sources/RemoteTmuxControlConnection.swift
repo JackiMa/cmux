@@ -35,6 +35,9 @@ final class RemoteTmuxControlConnection {
     private(set) var connectionState: ConnectionState = .connecting {
         didSet {
             guard oldValue != connectionState else { return }
+            if oldValue == .connected, connectionState != .connected {
+                lastSentClientSize = nil
+            }
             observers.notifyStateChanged(connectionState)
             switch connectionState {
             case .connected:
@@ -167,6 +170,8 @@ final class RemoteTmuxControlConnection {
     /// after a reconnect so the resumed session keeps the mirror's grid instead of
     /// reverting to ssh's default 80×24.
     var lastClientSize: (columns: Int, rows: Int)?
+    /// The last session-wide size actually sent to this live control client.
+    var lastSentClientSize: (columns: Int, rows: Int)?
     /// The last size any writer requested per window — per-window dedup
     /// baseline and the reconnect re-pin table.
     var lastWindowSizes: [Int: (Int, Int)] = [:]

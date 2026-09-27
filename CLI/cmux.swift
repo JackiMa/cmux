@@ -11307,6 +11307,7 @@ struct CMUXCLI {
         var identityFile: String?
         var noFocus = false
         var newWindow = false
+        var onlySession: String?
 
         // Intentional subset of parseSSHCommandOptions: ssh-tmux has no relay,
         // passthrough, --ssh-option, --name, or --window support.
@@ -11328,6 +11329,21 @@ struct CMUXCLI {
                     throw CLIError(message: "ssh-tmux: --identity requires a path")
                 }
                 identityFile = commandArgs[index + 1]
+                index += 2
+            case "--session":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: String(localized: "cli.error.sshTmux.sessionRequired", defaultValue: "ssh-tmux: --session requires a name"))
+                }
+                let name = commandArgs[index + 1]
+                guard !name.isEmpty, !name.hasPrefix("-"), !name.unicodeScalars.contains(where: {
+                    switch $0.properties.generalCategory {
+                    case .control, .format, .lineSeparator, .paragraphSeparator: return true
+                    default: return false
+                    }
+                }) else {
+                    throw CLIError(message: String(localized: "cli.error.sshTmux.invalidSession", defaultValue: "ssh-tmux: invalid session name"))
+                }
+                onlySession = name
                 index += 2
             case "--no-focus":
                 noFocus = true
@@ -11357,6 +11373,7 @@ struct CMUXCLI {
         var params: [String: Any] = ["host": destination]
         if let port { params["port"] = port }
         if let identityFile, !identityFile.isEmpty { params["identity_file"] = identityFile }
+        if let onlySession { params["only_session"] = onlySession }
         params["activate"] = !noFocus
         if !newWindow {
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
@@ -19165,7 +19182,11 @@ struct CMUXCLI {
                   --new-window        Open the mirror in a dedicated new window
                 """
             )
-            return "\(help)\n\n\(newWindowHelp)"
+            let sessionHelp = String(
+                localized: "cli.help.ssh-tmux.session",
+                defaultValue: "Additional flag:\n  --session <name>    Mirror only this tmux session"
+            )
+            return "\(help)\n\n\(sessionHelp)\n\n\(newWindowHelp)"
         case "local-tmux", "tmux":
             return LocalTmuxInvocation.usage
         case "ssh-session-list":

@@ -251,6 +251,9 @@ extension Workspace {
         taskCreateOperationID = snapshot.taskCreateOperationID
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        recoveryObservationsByPanelId.removeAll(keepingCapacity: false)
+        recoveryPlannedAgentOwners.removeAll(keepingCapacity: false)
+        defer { recoveryPlannedAgentOwners.removeAll(keepingCapacity: false) }
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
@@ -659,7 +662,7 @@ extension Workspace {
             let resumeStartupInput = localTmuxStartCommand == nil
                 ? sessionRestorePolicy.surfaceResumeStartupInput(
                     resumeBinding,
-                    autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults) && (agentWasRunning ?? true),
+                    autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults) && agentWasRunning == true,
                     promptForApproval: false,
                     approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
                 )
@@ -671,7 +674,7 @@ extension Workspace {
             let shouldPersistScrollback = sessionRestorePolicy.shouldPersistSessionScrollback(
                 closeConfirmationRequired: closeConfirmationRequired
             ) && sessionRestorePolicy.shouldReplaySessionScrollback(
-                hasRestorableAgent: effectiveRestorableAgent != nil,
+                hasRestorableAgent: agentWasRunning == true && effectiveRestorableAgent != nil,
                 tmuxStartCommand: restorableTmuxStartCommand,
                 hasResumeStartupWork: resumeStartupInput != nil
             )
@@ -729,7 +732,18 @@ extension Workspace {
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil
+            ).recordingRecovery(
+                surfaceID: panelId,
+                previous: recoveryObservationsByPanelId[panelId],
+                unavailableReason: recoveryEvidenceUnavailableReason,
+                freshEvidence: recoveryEvidenceFreshAt != nil,
+                foregroundOtherProcess: effectiveRestorableAgent == nil && resumeBinding == nil &&
+                    panelShellActivityStates[panelId] == .commandRunning,
+                confirmedShell: effectiveRestorableAgent == nil && resumeBinding == nil &&
+                    panelShellActivityStates[panelId] == .promptIdle,
+                now: recoveryEvidenceFreshAt ?? Date()
             )
+            recoveryObservationsByPanelId[panelId] = terminalSnapshot?.recovery
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = nil
@@ -1602,10 +1616,21 @@ extension Workspace {
             )
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
-            // Only auto-resume if the agent was actively running when the snapshot was saved.
-            // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
-            let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
-            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
+            let recoveryObservation = snapshot.terminal?.recovery
+                ?? snapshot.terminal.map { TerminalRecoveryObservation.migrated(from: $0, surfaceID: snapshot.id) }
+            recoveryObservationsByPanelId[snapshot.id] = recoveryObservation
+            let claimedRecoveryOwner = recoveryObservation?.agent.flatMap { recoveryPlannedAgentOwners[$0] }
+            let recoveryPlan = snapshot.terminal?.recoveryPlan(
+                surfaceID: snapshot.id, claimedOwnerSurfaceID: claimedRecoveryOwner
+            )
+            let shouldAutoResumeAgent: Bool = {
+                guard autoResumeAgentSessions,
+                      case .resumeAgent = recoveryPlan?.action else { return false }
+                return true
+            }()
+            if shouldAutoResumeAgent, let agent = recoveryObservation?.agent {
+                recoveryPlannedAgentOwners[agent] = snapshot.id
+            }
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoresRemoteWorkspaceTerminalSnapshot =
                 remoteStartupCommand != nil &&
@@ -1690,6 +1715,7 @@ extension Workspace {
             let restoreStartupBlocked = restoreIndexUnavailable || restoreOwnershipAmbiguous ||
                 stablePanelHasUncertainProcess
             let resumeBindingForStartup =
+                (recoveryPlan?.action != .attachSession && !shouldAutoResumeAgent) ||
                 restoredHibernation != nil ||
                 restoreStartupBlocked ||
                 liveSessionOwner != nil ||
@@ -1890,7 +1916,8 @@ extension Workspace {
             // Build the candidate before arming the gate. A binding that is
             // disabled, unapproved, or cannot render a command must start as an
             // ordinary shell instead of waiting behind deferred admission.
-            let deferredAgentResumeCandidateInput: String? = if restoreIndexUnavailable,
+            let deferredAgentResumeCandidateInput: String? = if shouldAutoResumeAgent,
+                restoreIndexUnavailable,
                 restoredHibernation == nil,
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
                 if let restorableAgent {
@@ -1929,7 +1956,7 @@ extension Workspace {
             ).isEmpty == false ? deferredAgentResumeCandidateInput : nil
             let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
             let shouldReplayScrollback = sessionRestorePolicy.shouldReplaySessionScrollback(
-                hasRestorableAgent: restorableAgent != nil,
+                hasRestorableAgent: shouldAutoResumeAgent || recoveryPlan?.action == .attachSession,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 hasResumeStartupWork: restoredBindingLaunch != nil ||
                     restoredAgentResumeLaunch != nil || deferredAgentResumeStartupInput != nil
@@ -3262,6 +3289,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    var recoveryObservationsByPanelId: [UUID: TerminalRecoveryObservation] = [:]
+    var recoveryEvidenceUnavailableReason: String?
+    var recoveryEvidenceFreshAt: Date?
+    var recoveryPlannedAgentOwners: [TerminalRecoveryAgentIdentity: UUID] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
@@ -4588,8 +4619,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private(set) var activeFocusTransactionId: UUID?
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
+    private var focusCircuitBreaker = WorkspaceFocusCircuitBreaker()
 #if DEBUG
     private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
+    private(set) var debugApplyTabSelectionNowCount: Int = 0
+    private(set) var debugReassertingApplyTabSelectionNowCount: Int = 0
     private var debugLastDidMoveTabTimestamp: TimeInterval = 0
     private var debugDidMoveTabEventCount: UInt64 = 0
 #endif
@@ -11458,6 +11492,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         focusIntent: PanelFocusIntent? = nil,
         focusTransactionId: UUID? = nil
     ) {
+        if trigger != .terminalFirstResponder {
+            focusCircuitBreaker.resetReassert()
+        }
         guard !remoteTmuxMirrorInterceptsFocusPanel(panelId, previousHostedView: previousHostedView, trigger: trigger, focusIntent: focusIntent) else { return }
         let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         markExplicitFocusIntent(on: panelId)
@@ -11507,15 +11544,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return bonsplitController.focusedPaneId == targetPaneId &&
                 bonsplitController.selectedTab(inPane: targetPaneId)?.id == tabId
         }()
-        let targetHostedView = terminalPanel(for: panelId)?.hostedView
-        let targetHasPendingReparentSuppression = targetHostedView.map { hostedView in
-            hostedView.isSuppressingReparentFocusForLayoutFollowUp() ||
-                pendingReparentFocusSuppressionViews.values.contains { $0 === hostedView }
-        } ?? false
         let shouldSuppressReentrantRefocus =
             trigger == .terminalFirstResponder &&
-            selectionAlreadyConverged &&
-            targetHasPendingReparentSuppression
+            selectionAlreadyConverged
 #if DEBUG
         let targetPaneShort = targetPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
         let focusedPaneShort = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
@@ -11840,6 +11871,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // Source of truth: bonsplit focused pane + selected tab.
         // AppKit first responder must converge to this model state, not the other way around.
         var targetPanelId: UUID?
+        var fallbackSelection: (pane: PaneID, tab: TabID)?
+        let focusedPaneBefore = bonsplitController.focusedPaneId
+        let selectedTabBefore = focusedPaneBefore.flatMap {
+            bonsplitController.selectedTab(inPane: $0)?.id
+        }
 
         if let focusedPane = bonsplitController.focusedPaneId,
            let focusedTab = bonsplitController.selectedTab(inPane: focusedPane),
@@ -11851,8 +11887,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 guard let selectedTab = bonsplitController.selectedTab(inPane: pane),
                       let mappedPanelId = panelIdFromSurfaceId(selectedTab.id),
                       panels[mappedPanelId] != nil else { continue }
-                bonsplitController.focusPane(pane)
-                bonsplitController.selectTab(selectedTab.id)
+                fallbackSelection = (pane, selectedTab.id)
                 targetPanelId = mappedPanelId
                 break
             }
@@ -11864,12 +11899,26 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                let fallbackPane = bonsplitController.allPaneIds.first(where: { paneId in
                    bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == fallbackTabId })
                }) {
-                bonsplitController.focusPane(fallbackPane)
-                bonsplitController.selectTab(fallbackTabId)
+                fallbackSelection = (fallbackPane, fallbackTabId)
             }
         }
 
-        guard let targetPanelId, let targetPanel = panels[targetPanelId] else { return }
+        guard let targetPanelId, let targetPanel = panels[targetPanelId] else {
+            focusCircuitBreaker.resetReconcile()
+            return
+        }
+        if focusCircuitBreaker.breakReconcile(
+            key: .init(pane: focusedPaneBefore, tab: selectedTabBefore, panel: targetPanelId),
+            now: CACurrentMediaTime()
+        ) { return }
+        if let fallbackSelection {
+            if bonsplitController.focusedPaneId != fallbackSelection.pane {
+                bonsplitController.focusPane(fallbackSelection.pane)
+            }
+            if bonsplitController.selectedTab(inPane: fallbackSelection.pane)?.id != fallbackSelection.tab {
+                bonsplitController.selectTab(fallbackSelection.tab)
+            }
+        }
 
         // Materialization replaces the placeholder in the registry while keeping
         // its stable UUID. Continue this reconciliation with the replacement so
@@ -13386,6 +13435,23 @@ extension Workspace: BonsplitDelegate {
         focusTransactionId: UUID?,
         previousTerminalHostedView: GhosttySurfaceScrollView?
     ) {
+        let converged = reassertAppKitFocus &&
+            bonsplitController.focusedPaneId == pane &&
+            bonsplitController.selectedTab(inPane: pane)?.id == tabId &&
+            panelIdFromSurfaceId(tabId) == focusedPanelId
+        if let panelId = panelIdFromSurfaceId(tabId) {
+            if focusCircuitBreaker.breakReassert(
+                key: .init(pane: pane, tab: tabId, panel: panelId),
+                converged: converged,
+                now: CACurrentMediaTime()
+            ) { return }
+        } else {
+            focusCircuitBreaker.resetReassert()
+        }
+#if DEBUG
+        debugApplyTabSelectionNowCount += 1
+        if reassertAppKitFocus { debugReassertingApplyTabSelectionNowCount += 1 }
+#endif
         let transactionId = focusTransactionId ?? UUID()
         let previousActiveFocusTransactionId = activeFocusTransactionId
         activeFocusTransactionId = transactionId
@@ -14274,6 +14340,10 @@ extension Workspace: BonsplitDelegate {
               !preservesFocusDuringMovingTabSplit else { return }
         // When a pane is focused, focus its selected tab's panel
         guard let tab = controller.selectedTab(inPane: pane) else { return }
+        if controller.focusedPaneId == pane,
+           controller.selectedTab(inPane: pane)?.id == tab.id,
+           let panelId = panelIdFromSurfaceId(tab.id),
+           focusedPanelId == panelId { return }
 #if DEBUG
         AppDelegate.shared?.focusLog.append(
             "Workspace.didFocusPane paneId=\(pane.id.uuidString) tabId=\(tab.id) focusedPane=\(controller.focusedPaneId?.id.uuidString ?? "nil")"

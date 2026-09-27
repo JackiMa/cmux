@@ -22,6 +22,18 @@ extension Workspace: TerminalLinkOpenContainer {
         )
     }
 
+    func remoteTmuxPreviewContext(for sourcePanelId: UUID) -> RemoteTmuxPreviewContext? {
+        guard let location = remoteTmuxControlPane(surfaceID: sourcePanelId),
+              location.pane.panel.id == sourcePanelId,
+              let host = location.windowMirror?.connection?.host ?? remoteTmuxSessionMirror?.host else {
+            return nil
+        }
+        return RemoteTmuxPreviewContext(
+            host: host,
+            cwd: effectivePanelDirectory(panelId: sourcePanelId)
+        )
+    }
+
     func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId),
               let resource = SurfaceCatalog.shared.resource(forPanel: target.surfaceID)

@@ -33,6 +33,10 @@ import Testing
         fixture.connection.handleMessageForTesting(
             .clientDetached(client: "/dev/pts/22")
         )
+        #expect(fixture.connection.lastSentClientSize?.columns == 242)
+        #expect(fixture.connection.lastSentClientSize?.rows == 62)
+        fixture.connection.setClientSize(columns: 242, rows: 62)
+        #expect(fixture.connection.clientSizeDebounceTask == nil)
 
         // Closing queues EOF after every command write, without blocking the main actor.
         fixture.writer.close()

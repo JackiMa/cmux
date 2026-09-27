@@ -1244,7 +1244,8 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        environment["CMUX_SURFACE_ID"] = surfaceID
 
         for arguments in [
             ["restore", "claude", currentCheckpointID],
@@ -1259,10 +1260,12 @@ import Testing
 
             XCTAssertFalse(result.timedOut, result.diagnostics)
             XCTAssertEqual(result.status, 1, result.diagnostics)
-            XCTAssertTrue(
-                result.stderr.contains("Run 'cmux restore --surface'"),
-                result.diagnostics
-            )
+            let requestedKind = arguments[1]
+            let requestedCheckpointID = arguments[2]
+            for expected in [surfaceID, "codex", currentCheckpointID, requestedKind, requestedCheckpointID] {
+                XCTAssertTrue(result.stderr.contains(expected), result.diagnostics)
+            }
+            XCTAssertTrue(result.stderr.contains("cmux restore --surface"), result.diagnostics)
         }
     }
 

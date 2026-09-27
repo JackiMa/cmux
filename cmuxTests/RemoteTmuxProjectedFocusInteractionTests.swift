@@ -116,7 +116,7 @@ struct RemoteTmuxProjectedFocusInteractionTests {
         inactivePane.hostedView.surfaceView.desiredFocus = true
 
         #expect(activePane.hostedView.surfaceView.terminalPointerShouldForwardActivation())
-        #expect(!inactivePane.hostedView.surfaceView.terminalPointerShouldForwardActivation())
+        #expect(inactivePane.hostedView.surfaceView.terminalPointerShouldForwardActivation())
     }
 
     @Test

@@ -1452,8 +1452,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var isRemoteTerminal: Bool?
     var remotePTYSessionID: String?
     /// Whether the agent process was actively running when this snapshot was captured.
-    /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
+    /// Nil means unknown. Legacy snapshots with nil require recovery migration.
     var wasAgentRunning: Bool?
+    var recovery: TerminalRecoveryObservation?
 
     init(
         workingDirectory: String? = nil,
@@ -1468,7 +1469,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
-        wasAgentRunning: Bool? = nil
+        wasAgentRunning: Bool? = nil,
+        recovery: TerminalRecoveryObservation? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1483,6 +1485,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
+        self.recovery = recovery
     }
 }
 

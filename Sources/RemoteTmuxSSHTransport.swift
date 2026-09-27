@@ -137,14 +137,55 @@ actor RemoteTmuxSSHTransport {
     }
 
     /// Asserts that the remote server supports live mirroring, then discovers sessions.
-    func discoverMirrorSessions(createIfEmpty: Bool) async throws -> [RemoteTmuxSession] {
+    func discoverMirrorSessions(createIfEmpty: Bool, onlySession: String? = nil) async throws -> [RemoteTmuxSession] {
         try await assertMinimumTmuxVersion(checkClientWhenNoServer: createIfEmpty)
+        let probeScript = """
+            if [ -x "$HOME/.local/bin/ptmux" ]; then
+              printf '%s\\n' "$HOME/.local/bin/ptmux"
+            elif command -v ptmux >/dev/null 2>&1; then
+              command -v ptmux
+            else
+              exit 42
+            fi
+            """
+        let probe = try await run(["bash", "-c", probeScript])
+        let persistentNames: [String]?
+        if probe.exitCode == 42 {
+            persistentNames = nil
+        } else {
+            guard probe.succeeded else { throw commandFailure(probe) }
+            let executable = probe.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !executable.isEmpty else { throw RemoteTmuxError.commandFailed(exitCode: 1, stderr: "ptmux probe returned no executable") }
+            let restore = try await run([executable, "restore"])
+            guard restore.succeeded else {
+                throw RemoteTmuxError.commandFailed(exitCode: restore.exitCode, stderr: restore.stderr)
+            }
+            let names = try await run([executable, "names"])
+            guard names.succeeded else {
+                throw RemoteTmuxError.commandFailed(exitCode: names.exitCode, stderr: names.stderr)
+            }
+            persistentNames = names.stdout.split(whereSeparator: \.isNewline).map(String.init)
+        }
         var sessions = try await listSessions()
-        if sessions.isEmpty, createIfEmpty {
+        if sessions.isEmpty, let persistentNames, !persistentNames.isEmpty {
+            throw RemoteTmuxError.commandFailed(exitCode: 1, stderr: "ptmux restore left no running tmux sessions on \(host.destination)")
+        }
+        var decision = RemoteTmuxMirrorSessionDecision(
+            liveSessions: sessions, persistentNames: persistentNames,
+            onlySession: onlySession, createIfEmpty: createIfEmpty
+        )
+        if decision.shouldCreateBlankSession {
             _ = try? await runTmux(["new-session", "-d"])
             sessions = try await listSessions()
+            decision = RemoteTmuxMirrorSessionDecision(
+                liveSessions: sessions, persistentNames: persistentNames,
+                onlySession: onlySession, createIfEmpty: createIfEmpty
+            )
         }
-        return sessions
+        if decision.requestedSessionMissing, let onlySession {
+            throw RemoteTmuxError.sessionNotFound(name: onlySession, destination: host.destination)
+        }
+        return decision.sessions
     }
 
     /// Runs a `tmux <args…>` command on the remote host and returns its result.

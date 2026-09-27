@@ -8,6 +8,20 @@ extension RemoteTmuxSessionMirror {
         controlPaneIdByPane[tmuxPaneID]
     }
 
+    /// Guarantees a control identity for a pane the window mirror is about to
+    /// render. Panel creation (window-mirror reconcile) and identity
+    /// reconciliation (`rebuild()`) are driven from two different sources;
+    /// without this a pane can render `%output` while `sendInputBytes`
+    /// silently rejects its keystrokes because `controlPaneIdByPane` has not
+    /// caught up yet.
+    @discardableResult
+    func ensureControlPaneIdentity(tmuxPaneID: Int) -> PaneID {
+        if let existing = controlPaneIdByPane[tmuxPaneID] { return existing }
+        let paneID = PaneID()
+        controlPaneIdByPane[tmuxPaneID] = paneID
+        return paneID
+    }
+
     func reconcileControlPaneIdentities(livePaneIDs: Set<Int>) {
         let removedPaneIDs = controlPaneIdByPane.keys.filter { !livePaneIDs.contains($0) }
         for tmuxPaneID in removedPaneIDs {

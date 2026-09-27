@@ -51,6 +51,15 @@ extension RemoteTmuxSessionMirror {
                       let onInput = self.makePaneInputHandler(toPane: tmuxPaneId) else {
                     return nil
                 }
+                // The mirror is about to render this pane, so its input seam
+                // must be live in the same turn rather than waiting on the
+                // next topology rebuild. `onControlSurfaceChanged` fires right
+                // after this closure returns, so both the identity and the
+                // owning window must be established here, not after.
+                self.ensureControlPaneIdentity(tmuxPaneID: tmuxPaneId)
+                if self.windowIdByPane[tmuxPaneId] == nil {
+                    self.windowIdByPane[tmuxPaneId] = windowId
+                }
                 return workspace?.makeRemoteTmuxPanePanel(
                     onInput: onInput,
                     keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value }

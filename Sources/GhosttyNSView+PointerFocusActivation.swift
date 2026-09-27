@@ -19,6 +19,10 @@ extension GhosttyNSView {
 
     func terminalPointerShouldForwardActivation() -> Bool {
         guard let terminalSurface else { return false }
+        if terminalSurface.focusPlacement == .workspace,
+           terminalSurface.owningWorkspace()?.remoteTmuxControlPane(surfaceID: terminalSurface.id) != nil {
+            return true
+        }
 
         let mouseCaptured = terminalSurface.surface.map {
             ghostty_surface_mouse_captured($0)

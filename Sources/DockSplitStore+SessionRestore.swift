@@ -33,6 +33,9 @@ extension DockSplitStore {
         }
         cancelConfigurationTasks()
         removeAllPanels()
+        recoveryObservationsByPanelId.removeAll(keepingCapacity: false)
+        recoveryPlannedAgentOwners.removeAll(keepingCapacity: false)
+        defer { recoveryPlannedAgentOwners.removeAll(keepingCapacity: false) }
         hasLoadedConfiguration = true
         hasAppliedConfigurationSeed = true
 
@@ -278,10 +281,21 @@ extension DockSplitStore {
         } else {
             nil
         }
-        let agentWasRunning = terminalSnapshot.wasAgentRunning ?? true
-        let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
-            defaults: agentSessionAutoResumeDefaults
-        ) && agentWasRunning
+        let recoveryObservation = terminalSnapshot.recovery
+            ?? TerminalRecoveryObservation.migrated(from: terminalSnapshot, surfaceID: snapshot.id)
+        recoveryObservationsByPanelId[snapshot.id] = recoveryObservation
+        let recoveryPlan = terminalSnapshot.recoveryPlan(
+            surfaceID: snapshot.id,
+            claimedOwnerSurfaceID: recoveryObservation.agent.flatMap { recoveryPlannedAgentOwners[$0] }
+        )
+        let shouldAutoResumeAgent: Bool = {
+            guard AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults),
+                  case .resumeAgent = recoveryPlan.action else { return false }
+            return true
+        }()
+        if shouldAutoResumeAgent, let agent = recoveryObservation.agent {
+            recoveryPlannedAgentOwners[agent] = snapshot.id
+        }
         let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
         let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
@@ -324,7 +338,8 @@ extension DockSplitStore {
         )
         let restoreStartupBlocked = restoreIndexUnavailable || restoreOwnershipAmbiguous ||
             stablePanelHasUncertainProcess
-        let resumeBindingForStartup = hibernation != nil ||
+        let resumeBindingForStartup = (recoveryPlan.action != .attachSession && !shouldAutoResumeAgent) ||
+            hibernation != nil ||
             restoreStartupBlocked ||
             liveSessionOwner != nil ||
             stablePanelHasLiveProcess ||
@@ -403,7 +418,8 @@ extension DockSplitStore {
         // Build the candidate before arming the gate. A binding that is
         // disabled, unapproved, or cannot render a command must start as an
         // ordinary shell instead of waiting behind deferred admission.
-        let deferredAgentResumeCandidateInput: String? = if restoreIndexUnavailable,
+        let deferredAgentResumeCandidateInput: String? = if shouldAutoResumeAgent,
+            restoreIndexUnavailable,
             hibernation == nil,
             restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
             if let restorableAgent, restorableAgentCanAutoResume {
@@ -447,7 +463,7 @@ extension DockSplitStore {
             return OneShotTerminalLauncherStore.enterableWorkingDirectory(candidate)
         }()
         let shouldReplayScrollback = policy.shouldReplaySessionScrollback(
-            hasRestorableAgent: restorableAgent != nil,
+            hasRestorableAgent: shouldAutoResumeAgent || recoveryPlan.action == .attachSession,
             tmuxStartCommand: restoredTmuxStartCommand,
             hasResumeStartupWork: bindingLaunch != nil || agentLaunch != nil ||
                 deferredAgentResumeStartupInput != nil

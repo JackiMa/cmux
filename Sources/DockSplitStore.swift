@@ -87,6 +87,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// is kept in sync so the state survives Dock-to-workspace moves.
     @ObservationIgnored var agentRuntimeByPanelId: [UUID: Workspace.DetachedAgentRuntimeState] = [:]
     @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    @ObservationIgnored var recoveryObservationsByPanelId: [UUID: TerminalRecoveryObservation] = [:]
+    @ObservationIgnored var recoveryEvidenceUnavailableReason: String?
+    @ObservationIgnored var recoveryEvidenceFreshAt: Date?
+    @ObservationIgnored var recoveryPlannedAgentOwners: [TerminalRecoveryAgentIdentity: UUID] = [:]
     @ObservationIgnored let terminalStartupRestoreCoordinator: TerminalStartupRestoreCoordinator
     var restoredAgentLifecycle: RestoredAgentLifecycleCoordinator {
         terminalStartupRestoreCoordinator.lifecycle

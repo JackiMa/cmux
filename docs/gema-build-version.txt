@@ -1,0 +1,14 @@
+保留的本机构建
+
+cmux DEV fix-ptmux
+  bundle: com.cmuxterm.app.debug.fix.ptmux
+  version: 0.64.20
+  git: 67a3296e0d
+  branch: fix-remote-tmux-sizing-echo-loop
+
+cmux DEV ptmux-preview
+  bundle: com.cmuxterm.app.debug.ptmux.preview
+  version: 0.64.25
+  base: 8abd2e9939
+  base-describe: v0.64.25-1898-g8abd2e9939
+  branch: gema/latest-ptmux

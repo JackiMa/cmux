@@ -97809,55 +97809,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record."
+            "value": "restore: calling surface %@; surface %@ records %@/%@; requested %@/%@. Run 'cmux restore --surface' in this terminal for its current record."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: このコマンドは現在のセッションと一致しません。現在の状態を使用するには 'cmux restore --surface' を実行してください。"
+            "value": "restore: 呼び出し元サーフェス %@。サーフェス %@ の記録は %@/%@、要求は %@/%@ です。このターミナルで 'cmux restore --surface' を実行すると現在の記録を使用できます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore：此命令与该会话已不匹配。请运行 'cmux restore --surface' 以使用当前记录。"
+            "value": "restore：调用端终端界面 %@；终端界面 %@ 记录 %@/%@；请求的是 %@/%@。请在此终端运行 'cmux restore --surface' 以使用当前记录。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: Dieser Befehl stimmt nicht mehr mit der Sitzung überein. Führen Sie 'cmux restore --surface' aus, um den aktuellen Datensatz zu verwenden."
+            "value": "restore: Aufrufende Surface %@; Surface %@ enthält %@/%@; angefordert wurde %@/%@. Führen Sie 'cmux restore --surface' in diesem Terminal für den aktuellen Eintrag aus."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore : cette commande ne correspond plus à la session. Exécutez 'cmux restore --surface' pour utiliser l'enregistrement actuel."
+            "value": "restore : surface appelante %@ ; la surface %@ contient %@/%@ ; demande : %@/%@. Exécutez 'cmux restore --surface' dans ce terminal pour son entrée actuelle."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: هذا الأمر لم يعد يطابق الجلسة. قم بتشغيل 'cmux restore --surface' لاستخدام السجل الحالي."
+            "value": "restore: السطح المستدعي %@؛ السطح %@ يسجل %@/%@؛ المطلوب %@/%@. شغّل 'cmux restore --surface' في هذه المحطة لاستخدام السجل الحالي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: este comando ya no coincide con la sesión. Ejecute 'cmux restore --surface' para usar el registro actual."
+            "value": "restore: superficie que llama %@; la superficie %@ registra %@/%@; se solicitó %@/%@. Ejecute 'cmux restore --surface' en este terminal para usar su registro actual."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore：此指令已不再與工作階段相符。執行 'cmux restore --surface' 以使用目前的紀錄。"
+            "value": "restore：呼叫端終端介面 %@；終端介面 %@ 記錄 %@/%@；要求的是 %@/%@。請在此終端執行 'cmux restore --surface' 以使用目前紀錄。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: 이 명령이 더 이상 세션과 일치하지 않습니다. 현재 기록을 사용하려면 'cmux restore --surface'를 실행하십시오."
+            "value": "restore: 호출한 화면 %@; 화면 %@에는 %@/%@가 기록되어 있지만 %@/%@가 요청되었습니다. 현재 기록을 사용하려면 이 터미널에서 'cmux restore --surface'를 실행하세요."
           }
         }
       }
@@ -98163,55 +98163,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record."
+            "value": "restore: calling surface %@; surface %@ records %@/%@; requested %@/%@. Run 'cmux restore --surface' in this terminal for its current record."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: このコマンドは現在のセッションと一致しません。現在の状態を使用するには 'cmux restore --surface' を実行してください。"
+            "value": "restore: 呼び出し元サーフェス %@。サーフェス %@ の記録は %@/%@、要求は %@/%@ です。このターミナルで 'cmux restore --surface' を実行すると現在の記録を使用できます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore：此命令与该会话已不匹配。请运行 'cmux restore --surface' 以使用当前记录。"
+            "value": "restore：调用端终端界面 %@；终端界面 %@ 记录 %@/%@；请求的是 %@/%@。请在此终端运行 'cmux restore --surface' 以使用当前记录。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: Dieser Befehl stimmt nicht mehr mit der Sitzung überein. Führen Sie 'cmux restore --surface' aus, um den aktuellen Datensatz zu verwenden."
+            "value": "restore: Aufrufende Surface %@; Surface %@ enthält %@/%@; angefordert wurde %@/%@. Führen Sie 'cmux restore --surface' in diesem Terminal für den aktuellen Eintrag aus."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore : cette commande ne correspond plus à la session. Exécutez 'cmux restore --surface' pour utiliser l'enregistrement actuel."
+            "value": "restore : surface appelante %@ ; la surface %@ contient %@/%@ ; demande : %@/%@. Exécutez 'cmux restore --surface' dans ce terminal pour son entrée actuelle."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: هذا الأمر لم يعد يطابق الجلسة. قم بتشغيل 'cmux restore --surface' لاستخدام السجل الحالي."
+            "value": "restore: السطح المستدعي %@؛ السطح %@ يسجل %@/%@؛ المطلوب %@/%@. شغّل 'cmux restore --surface' في هذه المحطة لاستخدام السجل الحالي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: este comando ya no coincide con la sesión. Ejecute 'cmux restore --surface' para usar el registro actual."
+            "value": "restore: superficie que llama %@; la superficie %@ registra %@/%@; se solicitó %@/%@. Ejecute 'cmux restore --surface' en este terminal para usar su registro actual."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore：此指令已不再與工作階段相符。執行 'cmux restore --surface' 以使用目前的紀錄。"
+            "value": "restore：呼叫端終端介面 %@；終端介面 %@ 記錄 %@/%@；要求的是 %@/%@。請在此終端執行 'cmux restore --surface' 以使用目前紀錄。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: 이 명령이 더 이상 세션과 일치하지 않습니다. 현재 기록을 사용하려면 'cmux restore --surface'를 실행하십시오."
+            "value": "restore: 호출한 화면 %@; 화면 %@에는 %@/%@가 기록되어 있지만 %@/%@가 요청되었습니다. 현재 기록을 사용하려면 이 터미널에서 'cmux restore --surface'를 실행하세요."
           }
         }
       }
@@ -281685,6 +281685,655 @@
           "stringUnit": {
             "state": "translated",
             "value": "원격 SSH 릴레이를 사용할 수 없습니다. 2초 후에 다시 시도합니다."
+          }
+        }
+      }
+    },
+    "remoteTmux.preview.openFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not open remote link"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Link konnte nicht geöffnet werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir le lien distant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر فتح الرابط البعيد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir el enlace remoto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟遠端連結"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开远程链接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 링크를 열 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートリンクを開けませんでした"
+          }
+        }
+      }
+    },
+    "remoteTmux.preview.connectionUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH connection unavailable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Verbindung nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion SSH indisponible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتصال SSH غير متاح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conexión SSH no disponible"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連線無法使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 连接不可用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 연결을 사용할 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続を利用できません"
+          }
+        }
+      }
+    },
+    "remoteTmux.preview.forwardUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not start the local web forward"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokale Webweiterleitung konnte nicht gestartet werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de démarrer le transfert web local"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر بدء إعادة توجيه الويب المحلية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar el reenvío web local"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法啟動本機網頁轉遞"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动本地网页转发"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 웹 전달을 시작할 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルの Web 転送を開始できませんでした"
+          }
+        }
+      }
+    },
+    "remoteTmux.preview.remoteFileUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote file is missing or is not a regular file"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remotedatei fehlt oder ist keine reguläre Datei"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier distant est absent ou n’est pas un fichier ordinaire"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملف البعيد مفقود أو ليس ملفًا عاديًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo remoto no existe o no es un archivo normal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端檔案不存在，或不是一般檔案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程文件不存在或不是普通文件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 파일이 없거나 일반 파일이 아닙니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルが存在しないか、通常のファイルではありません"
+          }
+        }
+      }
+    },
+    "remoteTmux.preview.fileTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote file exceeds 256 MB"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remotedatei ist größer als 256 MB"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier distant dépasse 256 Mo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتجاوز حجم الملف البعيد 256 ميغابايت"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo remoto supera los 256 MB"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端檔案超過 256 MB"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程文件超过 256 MB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 파일이 256 MB를 초과합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルが 256 MB を超えています"
+          }
+        }
+      }
+    },
+    "remoteTmux.preview.sourcePaneClosed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source terminal pane closed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quellterminalfenster wurde geschlossen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le volet de terminal source a été fermé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إغلاق جزء الطرفية المصدر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se cerró el panel de terminal de origen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源終端機窗格已關閉"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "源终端窗格已关闭"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원본 터미널 창이 닫혔습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のターミナルペインが閉じられました"
+          }
+        }
+      }
+    },
+    "remoteTmux.preview.browserUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux browser unavailable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Browser nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navigateur cmux indisponible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصفح cmux غير متاح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navegador de cmux no disponible"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 瀏覽器無法使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 浏览器不可用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 브라우저를 사용할 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザを利用できません"
+          }
+        }
+      }
+    },
+    "remoteTmux.preview.filePreviewUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File preview unavailable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateivorschau nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aperçu du fichier indisponible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معاينة الملف غير متاحة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista previa del archivo no disponible"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案預覽無法使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件预览不可用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 미리보기를 사용할 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルプレビューを利用できません"
+          }
+        }
+      }
+    },
+    "remoteTmux.preview.remoteDirectoryUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote working directory unavailable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Arbeitsverzeichnis nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répertoire de travail distant indisponible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دليل العمل البعيد غير متاح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directorio de trabajo remoto no disponible"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端工作目錄無法使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程工作目录不可用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 작업 디렉터리를 사용할 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートの作業ディレクトリを利用できません"
+          }
+        }
+      }
+    },
+    "remoteTmux.preview.remoteHomeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote home directory unavailable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Home-Verzeichnis nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répertoire personnel distant indisponible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الدليل الرئيسي البعيد غير متاح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directorio personal remoto no disponible"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端主目錄無法使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程主目录不可用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 홈 디렉터리를 사용할 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートのホームディレクトリを利用できません"
+          }
+        }
+      }
+    },
+    "remoteTmux.preview.invalidLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid remote link"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültiger Remote-Link"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lien distant non valide"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رابط بعيد غير صالح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlace remoto no válido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無效的遠端連結"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无效的远程链接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 원격 링크입니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効なリモートリンクです"
           }
         }
       }
@@ -550343,6 +550992,301 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークフローのひな形を探す："
+          }
+        }
+      }
+    },
+    "remoteTmux.error.sessionNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux session '%@' was not found on %@ after restore"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُعثر على جلسة tmux ‏'%@' على %@ بعد الاستعادة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux-Sitzung '%@' wurde nach der Wiederherstellung auf %@ nicht gefunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la sesión tmux «%@» en %@ después de restaurarla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La session tmux « %@ » est introuvable sur %@ après la restauration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux セッション「%@」は %@ で復元後に見つかりません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux 세션 '%@'을(를) %@에서 복원 후 찾을 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux 会话“%@”在 %@ 恢复后仍未找到"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux 工作階段「%@」在 %@ 還原後仍找不到"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.invalidSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "invalid tmux session name"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسم جلسة tmux غير صالح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültiger tmux-Sitzungsname"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre de sesión tmux no válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom de session tmux invalide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効な tmux セッション名"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 tmux 세션 이름"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux 会话名称无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無效的 tmux 工作階段名稱"
+          }
+        }
+      }
+    },
+    "cli.error.sshTmux.invalidSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: invalid session name"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: اسم جلسة غير صالح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: Ungültiger Sitzungsname"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: nombre de sesión no válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux : nom de session invalide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: 無効なセッション名"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: 잘못된 세션 이름"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux：会话名称无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux：無效的工作階段名稱"
+          }
+        }
+      }
+    },
+    "cli.error.sshTmux.sessionRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --session requires a name"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: يتطلب الخيار --session اسمًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --session benötigt einen Namen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --session requiere un nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux : --session nécessite un nom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --session には名前が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --session에는 이름이 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux：--session 需要名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux：--session 需要名稱"
+          }
+        }
+      }
+    },
+    "cli.help.ssh-tmux.session": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Additional flag:\n  --session <name>    Mirror only this tmux session"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيار إضافي:\n  --session <name>    اعكس جلسة tmux هذه فقط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusätzliche Option:\n  --session <name>    Nur diese tmux-Sitzung spiegeln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opción adicional:\n  --session <name>    Reflejar solo esta sesión tmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option supplémentaire :\n  --session <name>    Mettre en miroir uniquement cette session tmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加オプション:\n  --session <name>    この tmux セッションのみをミラーリング"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가 옵션:\n  --session <name>    이 tmux 세션만 미러링"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他选项：\n  --session <name>    仅镜像此 tmux 会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他選項：\n  --session <name>    僅鏡像這個 tmux 工作階段"
           }
         }
       }

@@ -294,7 +294,7 @@ extension DockSplitStore {
                     resumeBinding,
                     autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
                         defaults: agentSessionAutoResumeDefaults
-                    ) && (agentWasRunning ?? true),
+                    ) && agentWasRunning == true,
                     promptForApproval: false,
                     approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
                 )
@@ -305,7 +305,7 @@ extension DockSplitStore {
                     fallbackNeedsConfirmClose: terminal.needsConfirmClose()
                 )
             ) && policy.shouldReplaySessionScrollback(
-                hasRestorableAgent: restorableAgent != nil,
+                hasRestorableAgent: agentWasRunning == true && restorableAgent != nil,
                 tmuxStartCommand: tmuxStartCommand,
                 hasResumeStartupWork: resumeStartupInput != nil
             )
@@ -360,7 +360,18 @@ extension DockSplitStore {
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
                 remotePTYSessionID: transfer?.remotePTYSessionID,
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil
+            ).recordingRecovery(
+                surfaceID: panelId,
+                previous: recoveryObservationsByPanelId[panelId],
+                unavailableReason: recoveryEvidenceUnavailableReason,
+                freshEvidence: recoveryEvidenceFreshAt != nil,
+                foregroundOtherProcess: restorableAgent == nil && resumeBinding == nil &&
+                    terminal.shellActivity.state == .commandRunning,
+                confirmedShell: restorableAgent == nil && resumeBinding == nil &&
+                    terminal.shellActivity.state == .promptIdle,
+                now: recoveryEvidenceFreshAt ?? Date()
             )
+            recoveryObservationsByPanelId[panelId] = terminalSnapshot?.recovery
             browserSnapshot = nil
             filePreviewSnapshot = nil
         case .browser:

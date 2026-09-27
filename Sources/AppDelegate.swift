@@ -1248,6 +1248,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// their target workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
     private var sessionAutosaveTimer: DispatchSourceTimer?
+    private var terminalRecoveryCheckTask: Task<Void, Never>?
+    private var latestTerminalRecoveryIndexes: ProcessDetectedResumeIndexes?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
     private var processDetectedSessionSaveGeneration: UInt64 = 0
@@ -2381,6 +2383,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         connectivityInvalidationSubscriberCoordinator.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         stopSessionAutosaveTimer()
+        terminalRecoveryCheckTask?.cancel()
+        terminalRecoveryCheckTask = nil
         CloudVMActionLauncher.shared.terminateAll()
         // No Cloud session survives the app, so neither does the tunnel.
         cloudTunnelCoordinator?.appWillTerminate()
@@ -2583,6 +2587,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .trustedTopologySignature(of: currentDisplayGeometries().available)
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
+        startTerminalRecoveryCheckIfNeeded()
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupTerminalCmdClickUITestIfNeeded()
@@ -4274,6 +4279,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         timer.resume()
     }
 
+    private func startTerminalRecoveryCheckIfNeeded() {
+        guard terminalRecoveryCheckTask == nil,
+              !isRunningUnderXCTest(ProcessInfo.processInfo.environment) else { return }
+        terminalRecoveryCheckTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do { try await ContinuousClock().sleep(for: .seconds(300)) }
+                catch { break }
+                guard let self, !self.isTerminatingApp, self.didAttemptStartupSessionRestore else { continue }
+                let generation = self.nextProcessDetectedSessionSaveGeneration()
+                let bindings = self.currentSurfaceTTYDeviceBindings()
+                let indexes = await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
+                    ttyDeviceBindings: bindings
+                )
+                guard !Task.isCancelled,
+                      self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { continue }
+                guard let indexes else {
+                    self.persistTerminalRecoveryScanFailure()
+                    continue
+                }
+                self.setTerminalRecoveryEvidenceUnavailableReason(nil, freshAt: Date())
+                self.latestTerminalRecoveryIndexes = indexes
+                _ = self.saveSessionSnapshot(
+                    includeScrollback: false,
+                    restorableAgentIndex: indexes.restorableAgentIndex,
+                    surfaceResumeBindingIndex: indexes.surfaceResumeBindingIndex
+                )
+                self.setTerminalRecoveryEvidenceUnavailableReason(nil)
+            }
+        }
+    }
+
+    private func setTerminalRecoveryEvidenceUnavailableReason(
+        _ reason: String?, freshAt: Date? = nil
+    ) {
+        let indexes = latestTerminalRecoveryIndexes ?? ProcessDetectedResumeIndexes.cached(
+            restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
+        )
+        for route in orderedSessionRouteSnapshots(
+            restorableAgentIndex: indexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: indexes.surfaceResumeBindingIndex,
+            freezeWindowlessRoutes: false
+        ) {
+            guard case .live(let live) = route else { continue }
+            for workspace in live.tabManager.tabs {
+                workspace.recoveryEvidenceUnavailableReason = reason
+                workspace.recoveryEvidenceFreshAt = freshAt
+            }
+            if let dockState = live.dock, case .live(let dock) = dockState {
+                dock.recoveryEvidenceUnavailableReason = reason
+                dock.recoveryEvidenceFreshAt = freshAt
+            }
+        }
+    }
+
+    private func persistTerminalRecoveryScanFailure() {
+        setTerminalRecoveryEvidenceUnavailableReason("periodic process evidence scan timed out")
+        let indexes = latestTerminalRecoveryIndexes ?? ProcessDetectedResumeIndexes.cached(
+            restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
+        )
+        _ = saveSessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: indexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: indexes.surfaceResumeBindingIndex
+        )
+    }
+
     private func stopSessionAutosaveTimer() {
         sessionAutosaveTimer?.cancel()
         sessionAutosaveTimer = nil
@@ -4763,9 +4834,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let loadStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
-        let resumeIndexes = await ProcessDetectedResumeIndexes.load(
-            ttyDeviceBindings: ttyDeviceBindings
+        let resumeIndexes = latestTerminalRecoveryIndexes ?? ProcessDetectedResumeIndexes.cached(
+            restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
         )
 #if DEBUG
         loadMs = (ProcessInfo.processInfo.systemUptime - loadStart) * 1000.0

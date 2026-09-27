@@ -346,7 +346,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testUnknownAgentShellStatePreservesLegacyAutoResumeBehavior() throws {
+    func testUnknownAgentShellStateDoesNotAutoResume() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
@@ -362,7 +362,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
 
             XCTAssertNil(snapshot.panels.first?.terminal?.wasAgentRunning,
-                         "unknown shell state should be persisted as nil for legacy auto-resume behavior")
+                         "unknown shell state remains nil and needs recovery migration")
 
             let restored = Workspace()
             restored.restoreSessionSnapshot(snapshot)
@@ -370,11 +370,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
 
-            XCTAssertTrue(restoredInput.hasInitialInput)
-            XCTAssertGreaterThan(restoredInput.byteCount, 0)
-            try assertAgentAutoResumeUsesRestoreVerb(
-                restoredPanel,
-                sessionID: "codex-unknown-shell-state-session"
+            XCTAssertFalse(restoredInput.hasInitialInput)
+            XCTAssertEqual(snapshot.panels.first?.terminal?.recovery?.state, .unknown)
+            XCTAssertEqual(
+                snapshot.panels.first?.terminal?.recovery?.lastKnownAgent?.sessionID,
+                "codex-unknown-shell-state-session"
             )
         }
     }
