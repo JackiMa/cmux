@@ -46,9 +46,32 @@ struct RemoteTmuxPreviewRoutingTests {
         ))
         #expect(workspace.paneId(forPanelId: nextWindow.id) == terminalPane)
         #expect(workspace.reorderSurface(panelId: browsers[0].id, toIndex: 1, focus: false))
+        workspace.setPanelPinned(panelId: browsers[0].id, pinned: true)
+        #expect(workspace.isPanelPinned(browsers[0].id))
+        let remoteTab = try #require(workspace.surfaceIdFromPanelId(nextWindow.id))
+        #expect(!workspace.bonsplitController.moveTab(remoteTab, toPane: previewPane))
         #expect(!workspace.splitTabBar(
             workspace.bonsplitController, shouldSplitPane: terminalPane, orientation: .horizontal
         ))
+    }
+
+    @Test func browserCreationEntryPointsKeepTheTmuxStripAndCanReopenAfterClose() throws {
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let terminalPane = try #require(workspace.paneId(forPanelId: harness.outerPanelID))
+        let first = try #require(workspace.newBrowserSurface(
+            inPane: terminalPane, url: URL(string: "about:blank"), focus: false
+        ))
+        #expect(workspace.paneId(forPanelId: first.id) != terminalPane)
+        #expect(workspace.closePanel(first.id, force: true))
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+        let second = try #require(workspace.newBrowserSplit(
+            from: harness.outerPanelID, orientation: .horizontal,
+            url: URL(string: "about:blank"), focus: false
+        ))
+        #expect(workspace.paneId(forPanelId: second.id) != terminalPane)
+        #expect(workspace.bonsplitController.allPaneIds.count == 2)
     }
 
     @Test func downloadedImagePreviewDoesNotRequestATmuxSplit() throws {

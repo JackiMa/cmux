@@ -5,14 +5,14 @@ extension Workspace {
     @discardableResult
     func reorderSurface(panelId: UUID, toIndex index: Int, focus: Bool = true) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
-        let mirrorPaneId = isRemoteTmuxMirror ? paneId(forPanelId: panelId) : nil
+        let mirrorPaneId = isRemoteTmuxMirror && panels[panelId] is TerminalPanel
+            ? paneId(forPanelId: panelId) : nil
         let reordered: Bool
         if let mirrorPaneId {
             reordered = performRemoteTmuxMirrorOrderMutation(in: mirrorPaneId) {
                 bonsplitController.reorderTab(tabId, toIndex: index)
             }
         } else {
-            guard !isRemoteTmuxMirror else { return false }
             reordered = bonsplitController.reorderTab(tabId, toIndex: index)
         }
         guard reordered else { return false }

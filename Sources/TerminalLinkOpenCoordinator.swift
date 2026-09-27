@@ -170,6 +170,7 @@ struct TerminalLinkOpenCoordinator {
             return true
         }
         Task { @MainActor in
+            var attemptedTarget = raw
             do {
                 var target = initialTarget
                 if case .needsRemoteHome = target {
@@ -178,6 +179,7 @@ struct TerminalLinkOpenCoordinator {
                 }
                 switch target {
                 case .remoteFile(let path):
+                    attemptedTarget = path
                     let localFile = try await controller.previewFetcher.fetch(
                         path: path, cwd: context.cwd, host: context.host
                     )
@@ -187,7 +189,7 @@ struct TerminalLinkOpenCoordinator {
                     }
                     if ["html", "htm"].contains(localFile.pathExtension.lowercased()) {
                         guard container.openTerminalBrowserLink(
-                            url: localFile, sourcePanelId: sourcePanelId, focus: true
+                            url: localFile, sourcePanelId: sourcePanelId, focus: request.focus
                         ) else {
                             showRemoteTmuxLinkError(path, reason: .browserUnavailable)
                             return
@@ -197,14 +199,14 @@ struct TerminalLinkOpenCoordinator {
                         if let rightPane = workspace.preferredRightSideTargetPane(
                             fromPanelId: location.containerPanelID
                         ), !workspace.openFileSurfaces(
-                            inPane: rightPane, filePaths: [localFile.path], focus: true
+                            inPane: rightPane, filePaths: [localFile.path], focus: request.focus
                         ).isEmpty {
                             return
                         }
                         if let sourcePane = workspace.paneId(forPanelId: location.containerPanelID),
                            workspace.splitPaneWithFilePreview(
                                targetPane: sourcePane, orientation: .horizontal,
-                               insertFirst: false, filePath: localFile.path
+                               insertFirst: false, filePath: localFile.path, focus: request.focus
                            ) != nil {
                             return
                         }
@@ -218,7 +220,7 @@ struct TerminalLinkOpenCoordinator {
                     )
                     guard let container = containerResolver(request.sourceWorkspaceId, sourcePanelId),
                           container.openTerminalBrowserLink(
-                              url: localURL, sourcePanelId: sourcePanelId, focus: true
+                              url: localURL, sourcePanelId: sourcePanelId, focus: request.focus
                           ) else {
                         showRemoteTmuxLinkError(raw, reason: .browserUnavailable)
                         return
@@ -231,7 +233,7 @@ struct TerminalLinkOpenCoordinator {
                     showRemoteTmuxLinkError(raw, reason: .invalidLink)
                 }
             } catch {
-                showRemoteTmuxLinkError(raw, reason: .remoteDetail(error.localizedDescription))
+                showRemoteTmuxLinkError(attemptedTarget, reason: .remoteDetail(error.localizedDescription))
             }
         }
         return true
