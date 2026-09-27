@@ -31,7 +31,7 @@ private enum AgentRestoreAdmissionDecision: Sendable {
 /// Each reason carries its own explanation so the CLI shows the user what
 /// actually failed. A scan that ran out of time is worth retrying; an
 /// unreadable hook store for this agent kind is not.
-private enum AgentRestoreAdmissionUnverifiableReason: String, Sendable {
+enum AgentRestoreAdmissionUnverifiableReason: String, Sendable {
     case scanTimedOut = "scan_timed_out"
     case scanCancelled = "scan_cancelled"
     case hookStoreUnreadable = "hook_store_unreadable"
@@ -114,15 +114,16 @@ extension TerminalController {
                 startedAt: admissionStart
             )
         }
-        guard index.isComplete(
-            forWorkspaceId: inputs.workspaceID,
-            panelId: inputs.surfaceID,
+        if let reason = Self.agentRestoreIndexFailure(
+            index,
+            workspaceID: inputs.workspaceID,
+            surfaceID: inputs.surfaceID,
             kind: inputs.kind
-        ) else {
+        ) {
             return Self.agentRestoreAdmissionResponse(
                 request: request,
                 inputs: inputs,
-                decision: .unverifiable(.hookStoreUnreadable),
+                decision: .unverifiable(reason),
                 startedAt: admissionStart
             )
         }
@@ -167,6 +168,17 @@ extension TerminalController {
             decision: decision,
             startedAt: admissionStart
         )
+    }
+
+    /// Classifies incomplete ownership evidence before any launch claim is made.
+    nonisolated static func agentRestoreIndexFailure(
+        _ index: RestorableAgentSessionIndex,
+        workspaceID: UUID,
+        surfaceID: UUID,
+        kind: String
+    ) -> AgentRestoreAdmissionUnverifiableReason? {
+        index.isComplete(forWorkspaceId: workspaceID, panelId: surfaceID, kind: kind)
+            ? nil : .hookStoreUnreadable
     }
 
     /// Releases a pre-exec claim only when the requesting CLI owns its token.

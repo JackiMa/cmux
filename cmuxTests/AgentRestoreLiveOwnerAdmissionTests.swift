@@ -21,6 +21,18 @@ import Testing
 @MainActor
 @Suite("Agent restore live-owner admission", .serialized)
 struct AgentRestoreLiveOwnerAdmissionTests {
+    @Test("An unavailable process census permits bounded retry without admitting a launch")
+    func unavailableProcessCensusIsRetryable() throws {
+        let reason = try #require(TerminalController.agentRestoreIndexFailure(
+            .unavailable,
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            kind: "claude"
+        ))
+        #expect(reason.rawValue == "scan_unavailable")
+        #expect(reason.isRetryable)
+    }
+
     enum OwnerState: Equatable, Sendable {
         case absent
         case dead
@@ -139,6 +151,21 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         )
         defer { fixture.cleanup() }
         let index = fixture.index
+
+        let failure = TerminalController.agentRestoreIndexFailure(
+            index,
+            workspaceID: fixture.ownerWorkspaceID,
+            surfaceID: fixture.ownerSurfaceID,
+            kind: "claude"
+        )
+        #expect(failure?.rawValue == "hook_store_unreadable")
+        #expect(failure?.isRetryable == false)
+        #expect(TerminalController.agentRestoreIndexFailure(
+            index,
+            workspaceID: fixture.ownerWorkspaceID,
+            surfaceID: fixture.ownerSurfaceID,
+            kind: "amp"
+        ) == nil)
 
         #expect(!index.isComplete)
         #expect(!index.isComplete(
