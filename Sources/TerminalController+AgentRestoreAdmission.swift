@@ -34,6 +34,7 @@ private enum AgentRestoreAdmissionDecision: Sendable {
 enum AgentRestoreAdmissionUnverifiableReason: String, Sendable {
     case scanTimedOut = "scan_timed_out"
     case scanCancelled = "scan_cancelled"
+    case scanUnavailable = "scan_unavailable"
     case hookStoreUnreadable = "hook_store_unreadable"
 
     var isRetryable: Bool {
@@ -47,7 +48,7 @@ enum AgentRestoreAdmissionUnverifiableReason: String, Sendable {
                 localized: "agentRestore.admission.unavailable.timedOut",
                 defaultValue: "cmux could not finish checking whether this agent session is already running before the time limit. Retry 'cmux restore --surface'."
             )
-        case .scanCancelled:
+        case .scanCancelled, .scanUnavailable:
             return String(
                 localized: "agentRestore.admission.unavailable",
                 defaultValue: "cmux could not verify whether this agent session is already running. Retry 'cmux restore --surface'."
@@ -177,7 +178,8 @@ extension TerminalController {
         surfaceID: UUID,
         kind: String
     ) -> AgentRestoreAdmissionUnverifiableReason? {
-        index.isComplete(forWorkspaceId: workspaceID, panelId: surfaceID, kind: kind)
+        guard index.processCensusIsAvailable else { return .scanUnavailable }
+        return index.isComplete(forWorkspaceId: workspaceID, panelId: surfaceID, kind: kind)
             ? nil : .hookStoreUnreadable
     }
 

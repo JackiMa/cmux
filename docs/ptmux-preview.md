@@ -151,6 +151,12 @@ remain empty arguments through capture and resume. Dropping that argument leaves
 an invalid command and loses the user's tool restriction. `AgentResumeArgvTests`
 checks both paths through the launch sanitizer and resume command builder.
 
+Startup can briefly lack a complete process census while restored terminals and
+hooks start together. Restore admission now distinguishes that transient failure
+from an unreadable durable hook store. The CLI's existing bounded retry waits for
+a complete census before launching; corrupt records and live owners still block
+automatic launch.
+
 The embedded CLI also needs its SwiftPM localization bundle beside the binary.
 The build resource phase exposes the app's `CmuxFoundation_CmuxFoundation.bundle`
 under `Resources/bin/`. Without that link, CLI help and config validation crash
