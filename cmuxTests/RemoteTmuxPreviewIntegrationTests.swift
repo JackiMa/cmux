@@ -9,7 +9,8 @@ import Testing
 #endif
 
 /// Opt-in live SSH verification. The fixture contains connection coordinates and
-/// expected artifact metadata, never credentials. Each run owns its tmux session.
+/// expected artifact metadata, never credentials. Session-creating checks own
+/// their fixtures; the busy-master probe only reads an existing connection.
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxPreviewIntegrationTests {
@@ -21,6 +22,42 @@ struct RemoteTmuxPreviewIntegrationTests {
         var imageSHA256: String
         var webURL: String
         var pageMarker: String
+    }
+
+    @Test(
+        .enabled(if: ProcessInfo.processInfo.environment["CMUX_LIVE_PTMUX_BUSY_FIXTURE"] != nil),
+        .timeLimit(.minutes(1))
+    )
+    func saturatedExistingMasterStillReadsTheRealImage() async throws {
+        let path = try #require(ProcessInfo.processInfo.environment["CMUX_LIVE_PTMUX_BUSY_FIXTURE"])
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        let host = RemoteTmuxHost(destination: fixture.destination, port: fixture.port, identityFile: fixture.identityFile)
+        // Read-only opt-in probe of an already busy master. Do not attach,
+        // detach, or close it: the live terminal sessions belong to the user.
+        let probe = Process()
+        probe.executableURL = URL(fileURLWithPath: RemoteTmuxHost.defaultSSHExecutablePath())
+        probe.arguments = RemoteTmuxPreviewSSHOptions(host: host).arguments + ["--", host.destination, "true"]
+        let stderr = Pipe()
+        probe.standardInput = FileHandle.nullDevice
+        probe.standardOutput = FileHandle.nullDevice
+        probe.standardError = stderr
+        try probe.run()
+        stderr.fileHandleForWriting.closeFile()
+        let detail = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        probe.waitUntilExit()
+        try #require(probe.terminationStatus == 255)
+        try #require(detail.contains("Session open refused by peer"))
+
+        let fetcher = RemoteTmuxPreviewFetcher()
+        let directory = (fixture.imagePath as NSString).deletingLastPathComponent
+        let filename = (fixture.imagePath as NSString).lastPathComponent
+        for (path, cwd) in [(fixture.imagePath, "/absent-directory"), (filename, directory)] {
+            let downloaded = try await fetcher.fetch(path: path, cwd: cwd, host: host)
+            defer { try? FileManager.default.removeItem(at: downloaded) }
+            #expect(SHA256.hash(data: try Data(contentsOf: downloaded))
+                .map { String(format: "%02x", $0) }.joined() == fixture.imageSHA256)
+        }
+        #expect(try await fetcher.remoteHome(host: host).hasPrefix("/"))
     }
 
     @Test(
