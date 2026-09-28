@@ -45,7 +45,10 @@ struct RemoteTmuxPreviewIntegrationTests {
             AppDelegate.shared = previous
         }
 
-        let created = try await transport.runTmux(["new-session", "-d", "-s", session, "sleep 90"])
+        let imageDirectory = (fixture.imagePath as NSString).deletingLastPathComponent
+        let created = try await transport.runTmux([
+            "new-session", "-d", "-s", session, "-c", imageDirectory, "sleep 90"
+        ])
         try #require(created.exitCode == 0)
         do {
             try await verifyLinks(fixture: fixture, host: host, session: session, manager: manager, controller: controller)
@@ -78,6 +81,19 @@ struct RemoteTmuxPreviewIntegrationTests {
         }
         let entry = try #require(mirror.paneSurfaceEntries().first)
         let source = try #require((entry["surface_id"] as? String).flatMap(UUID.init(uuidString:)))
+        // An absolute path must still download when a pane's cached cwd no
+        // longer exists. Exercise the real SSH command, before opening a UI.
+        let missingDirectory = "/__cmux_preview_missing_\(UUID().uuidString)"
+        let downloaded = try await controller.previewFetcher.fetch(
+            path: fixture.imagePath, cwd: missingDirectory, host: host
+        )
+        defer { try? FileManager.default.removeItem(at: downloaded) }
+        #expect(SHA256.hash(data: try Data(contentsOf: downloaded))
+            .map { String(format: "%02x", $0) }.joined() == fixture.imageSHA256)
+
+        let location = try #require(workspace.remoteTmuxControlPane(surfaceID: source))
+        let windowMirror = try #require(location.windowMirror)
+        windowMirror.updatePaneCwd(paneId: location.pane.tmuxPaneID, path: missingDirectory)
         let terminalPane = try #require(workspace.remoteTmuxWindowsPaneId())
         let initialWindows = connection.windowOrder
         let subscription = CmuxEventBus.shared.subscribe(afterSequence: nil, names: ["surface.created"], categories: []).subscription
@@ -93,6 +109,22 @@ struct RemoteTmuxPreviewIntegrationTests {
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         #expect(digest == fixture.imageSHA256)
         #expect(workspace.paneId(forPanelId: imageID) != terminalPane)
+
+        // Click immediately after a remote cd, before the directory cache has
+        // caught up, and also before the first directory report has arrived.
+        let filename = (fixture.imagePath as NSString).lastPathComponent
+        for cachedDirectory in [missingDirectory, nil] as [String?] {
+            windowMirror.cwdByPaneId[location.pane.tmuxPaneID] = cachedDirectory
+            #expect(TerminalLinkOpenCoordinator().open(TerminalLinkOpenRequest(
+                rawValue: "./" + filename, sourceWorkspaceId: workspace.id,
+                sourcePanelId: source, workingDirectory: "/unrelated/local/directory", focus: false
+            )))
+            let relativeID = try await nextCreatedSurface(in: workspace, subscription: subscription, kind: "file_preview")
+            let relativeImage = try #require(workspace.panels[relativeID] as? FilePreviewPanel)
+            #expect(SHA256.hash(data: try Data(contentsOf: URL(fileURLWithPath: relativeImage.filePath)))
+                .map { String(format: "%02x", $0) }.joined() == fixture.imageSHA256)
+            #expect(workspace.paneId(forPanelId: relativeID) == workspace.paneId(forPanelId: imageID))
+        }
 
         #expect(TerminalLinkOpenCoordinator().open(TerminalLinkOpenRequest(
             rawValue: fixture.webURL, sourceWorkspaceId: workspace.id,
