@@ -1846,7 +1846,11 @@ final class ClaudeHookSessionStore {
         includeTerminalPromptTurnIds: Bool = true
     ) -> Bool {
         if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
-            return true
+            // Prompt depth belongs to a process generation. An interrupted
+            // process (or a ledger-settled Stop) can leave depth behind; do not
+            // let it suppress the next confirmed process's resume binding.
+            // Same-process and unverifiable starts still cannot erase a turn.
+            return !authoritativeSessionStartProcessIsNewer(incomingPID, than: record)
         }
         let hasCompletedTurnState = normalizeOptional(record.lastPromptTurnId) != nil
             || (includeTerminalPromptTurnIds && !terminalPromptTurnSet(from: record).isEmpty)

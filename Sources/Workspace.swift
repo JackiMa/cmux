@@ -199,6 +199,7 @@ extension Workspace {
             environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
         snapshot.captureTodoState(from: self)
+        snapshot.remoteTmux = remoteTmuxSessionSnapshot
         snapshot.dock = _dockSplit?.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
@@ -219,6 +220,10 @@ extension Workspace {
         deferBrowserPanels: Bool = false
     ) -> [UUID: UUID] {
         guard acceptsRestoredSession(snapshot) else { return [:] }
+        remoteTmuxRestoreTask?.cancel()
+        remoteTmuxRestoreTask = nil
+        remoteTmuxRestoration = snapshot.remoteTmux
+        remoteTmuxPreviewURLsByPanelId.removeAll()
         let finishWork = beginTerminalGeometryTransition(.restore)
         defer { finishWork() }
         sessionRestoreLayoutSuppressionDepth += 1
@@ -320,6 +325,7 @@ extension Workspace {
             defer { suppressRemoteTerminalStartupForSessionRestoreScaffold = previousValue }
             return restoreSessionLayout(snapshot.layout)
         }()
+        isRemoteTmuxMirror = snapshot.remoteTmux != nil
         var oldToNewPanelIds: [UUID: UUID] = [:]
         let deviceProjectionPanelIDs = Set((snapshot.surfaceProjections ?? [])
             .filter { $0.resource.machine.isDevice }.map(\.panelID))
@@ -422,6 +428,7 @@ extension Workspace {
             terminalStartupRestoreCoordinator.commitPendingRestores()
         }
         restoreSurfaceProjections(snapshot.surfaceProjections, oldToNewPanelIds: oldToNewPanelIds)
+        restoreRemoteTmuxPreviewIdentities(oldToNewPanelIds)
         return oldToNewPanelIds
     }
 
@@ -1603,6 +1610,10 @@ extension Workspace {
                     restoresLegacyRemoteDirectoryWithoutProvenance(snapshot)))
         switch snapshot.type {
         case .terminal:
+            if isRemoteTmuxMirror {
+                return restoreRemoteTmuxDisplayPanel(snapshot, in: paneId)
+            }
+            snapshot.terminal = snapshot.terminal?.reconcilingConfirmedAgentBinding(surfaceID: snapshot.id)
             if restoresDeviceProjection {
                 return restoreDeviceDisplayPanel(snapshot, in: paneId)
             }
@@ -2267,6 +2278,12 @@ extension Workspace {
             }
             return terminalPanel.id
         case .browser:
+            if remoteTmuxBrowserURL(for: snapshot.id) != nil {
+                // A forwarded localhost port belongs to the previous SSH connection.
+                snapshot.browser?.urlString = "about:blank"
+                snapshot.browser?.backHistoryURLStrings = []
+                snapshot.browser?.forwardHistoryURLStrings = []
+            }
             if deferBrowserPanelsDuringSessionRestore,
                snapshot.browser != nil,
                !isRemoteTmuxMirror,
@@ -5496,7 +5513,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let desiredOrder = pinnedTabs + unpinnedTabs
 
-        if isRemoteTmuxMirror, desiredOrder.map(\.id) != tabs.map(\.id) {
+        if isRemoteTmuxMirror, paneId == remoteTmuxWindowsPaneId(),
+           desiredOrder.map(\.id) != tabs.map(\.id) {
             let desiredPanelOrder = desiredOrder.compactMap { panelIdFromSurfaceId($0.id) }
             guard desiredPanelOrder.count == desiredOrder.count else { return false }
             return performRemoteTmuxMirrorOrderMutation(
@@ -6710,8 +6728,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteConfiguration != nil
     }
 
-    /// Ephemeral remote tmux mirror; excluded from cmux session restore.
-    var isRemoteTmuxMirror: Bool = false
+    /// Remote topology is authoritative; session snapshots retain its attachment target.
+    var isRemoteTmuxMirror: Bool = false {
+        didSet {
+            // Remote window tabs and local previews have different owners.
+            bonsplitController.configuration.allowCrossPaneTabMove = !isRemoteTmuxMirror
+        }
+    }
+    /// Only browser/file creation may split the outer mirror workspace locally.
+    var isCreatingRemoteTmuxPreviewSplit = false
+    var remoteTmuxRestoration: SessionRemoteTmuxWorkspaceSnapshot?
+    var remoteTmuxRestoreTask: Task<Void, Never>?
+    var remoteTmuxPreviewURLsByPanelId: [UUID: (remote: URL, local: URL)] = [:]
     weak var remoteTmuxSessionMirror: RemoteTmuxSessionMirror?
     /// Bound action for this mirror's outbound window-order mutation boundary.
     var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
@@ -6758,7 +6786,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     var isRestorableInSessionSnapshot: Bool {
-        if isRemoteTmuxMirror { return false }
+        if isRemoteTmuxMirror { return remoteTmuxSessionSnapshot != nil }
         if panels.values.contains(where: {
             switch $0.panelType {
             case .cloudVMLoading, .mobilePairing, .accountSignIn:
@@ -9462,7 +9490,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let newPanel = performRemoteTmuxMirrorMutation { () -> TerminalPanel? in
-            guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
+            guard let paneId = isRemoteTmuxMirror
+                ? remoteTmuxWindowsPaneId()
+                : (bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first)
             else { return nil }
 
             let title = customTitle ?? String(localized: "remoteTmux.tab.pane", defaultValue: "tmux pane")
@@ -9668,12 +9698,24 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
         initialDividerPosition: CGFloat? = nil,
-        websiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        bypassInsecureHTTPHostOnce: String? = nil
     ) -> BrowserPanel? {
         guard !isRetiredFromOwningTabManager, acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
-        // No local browser surfaces in a remote tmux mirror workspace (it is a
-        // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
-        if isRemoteTmuxMirror { return nil }
+        if isRemoteTmuxMirror {
+            guard paneId(forPanelId: panelId) != nil else { return nil }
+            if let previewPane = remoteTmuxPreviewPaneId() {
+                return newBrowserSurface(
+                    inPane: previewPane, url: url, initialRequest: initialRequest,
+                    focus: focus, preferredProfileID: preferredProfileID,
+                    bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+                    creationPolicy: creationPolicy,
+                    allowsExternalBrowserFallback: allowsExternalBrowserFallback,
+                    chromeVisibility: chromeVisibility, transparentBackground: transparentBackground,
+                    bypassRemoteProxy: bypassRemoteProxy, websiteDataStore: websiteDataStore
+                )
+            }
+        }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         // Under an MDM-managed disable no path may create a browser panel,
         // including session restore (mirrors the Dock restore behavior).
@@ -9714,6 +9756,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             chromeVisibility: chromeVisibility,
             transparentBackground: transparentBackground,
             proxyEndpoint: remoteProxyEndpoint,
@@ -9744,7 +9787,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // Mark this split as programmatic so didSplitPane doesn't auto-create a terminal.
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+        guard let newPaneId = performRemoteTmuxPreviewSplit({
+            bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst)
+        }) else {
             removeSurfaceMapping(forSurfaceId: newTab.id)
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
@@ -9798,11 +9843,33 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
         guard !isRetiredFromOwningTabManager, acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
-        // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
-        // has no browser concept). A local browser tab here would be an orphan
-        // that the mirror's rebuild() never reconciles, breaking the 1:1
-        // invariant — so refuse browser creation in a mirror workspace.
-        if isRemoteTmuxMirror { return nil }
+        guard bonsplitController.allPaneIds.contains(paneId) else { return nil }
+        if isRemoteTmuxMirror, sessionRestoreLayoutSuppressionDepth == 0,
+           paneId != remoteTmuxPreviewPaneId() {
+            if let previewPane = remoteTmuxPreviewPaneId() {
+                return newBrowserSurface(
+                    inPane: previewPane, url: url, initialRequest: initialRequest,
+                    focus: focus, selectWhenNotFocused: selectWhenNotFocused, insertAtEnd: insertAtEnd,
+                    preferredProfileID: preferredProfileID,
+                    bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+                    creationPolicy: creationPolicy,
+                    allowsExternalBrowserFallback: allowsExternalBrowserFallback,
+                    chromeVisibility: chromeVisibility, transparentBackground: transparentBackground,
+                    bypassRemoteProxy: bypassRemoteProxy, websiteDataStore: websiteDataStore
+                )
+            }
+            guard let sourcePanelId = effectiveSelectedPanelId(inPane: paneId) else { return nil }
+            return newBrowserSplit(
+                from: sourcePanelId, orientation: .horizontal, url: url, initialRequest: initialRequest,
+                preferredProfileID: preferredProfileID,
+                focus: focus ?? (bonsplitController.focusedPaneId == paneId),
+                creationPolicy: creationPolicy,
+                allowsExternalBrowserFallback: allowsExternalBrowserFallback,
+                chromeVisibility: chromeVisibility, transparentBackground: transparentBackground,
+                bypassRemoteProxy: bypassRemoteProxy, websiteDataStore: websiteDataStore,
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            )
+        }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         // Under an MDM-managed disable no path may create a browser panel,
         // including session restore (mirrors the Dock restore behavior).
@@ -10590,7 +10657,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool,
-        filePath: String
+        filePath: String,
+        focus: Bool = true
     ) -> FilePreviewPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let filePreviewPanel = FilePreviewPanel(
@@ -10611,19 +10679,30 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         bindSurface(newTab.id, toPanelId: filePreviewPanel.id)
 
+        let previousFocusedPanelId = focusedPanelId
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+        guard let newPaneId = performRemoteTmuxPreviewSplit({
+            bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst)
+        }) else {
             filePreviewPanel.close()
             panels.removeValue(forKey: filePreviewPanel.id)
             panelTitles.removeValue(forKey: filePreviewPanel.id)
             removeSurfaceMapping(forSurfaceId: newTab.id)
             return nil
         }
-        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: filePreviewPanel.id, kind: "file_preview", origin: "file_preview_split", focused: true)
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: filePreviewPanel.id, kind: "file_preview", origin: "file_preview_split", focused: focus)
 
-        bonsplitController.selectTab(newTab.id)
-        filePreviewPanel.focus()
+        if focus {
+            bonsplitController.selectTab(newTab.id)
+            filePreviewPanel.focus()
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: filePreviewPanel.id,
+                previousHostedView: focusedTerminalInputTarget()?.panel.hostedView
+            )
+        }
         filePreviewPanel.bindTabMetadata(to: self)
         return filePreviewPanel
     }
@@ -10631,6 +10710,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Permanently retires this workspace before releasing its runtime resources.
     func retireFromOwningTabManager() {
         guard !isRetiredFromOwningTabManager else { return }
+        remoteTmuxRestoreTask?.cancel()
+        remoteTmuxRestoreTask = nil
         isRetiredFromOwningTabManager = true
         // Workspace retirement is the shared ownership boundary used by
         // window-close, stale-registration, and rejected-window cleanup. A
@@ -14259,9 +14340,10 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
         guard !isRetiredFromOwningTabManager else { return false }
-        // In a remote tmux mirror, split means tmux `split-window`; always veto
-        // local splits so the mirror never gains an orphan pane.
+        // Terminal splits belong to tmux. Browser/file previews live in the
+        // outer workspace beside the mirrored window containers.
         guard isRemoteTmuxMirror else { return true }
+        if isCreatingRemoteTmuxPreviewSplit { return true }
         if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
            let panelId = panelIdFromSurfaceId(tabId) {
             _ = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(workspaceId: id, panelId: panelId, vertical: orientation == .vertical, focusIntent: .focusCreatedPane)
@@ -14274,6 +14356,7 @@ extension Workspace: BonsplitDelegate {
         // Mirror transactions send their desired order explicitly. Their local
         // mutations, including rollback and remote updates, must not echo it.
         guard isRemoteTmuxMirror,
+              pane == remoteTmuxWindowsPaneId(),
               !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
         let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
         guard !orderedPanelIds.isEmpty else { return }

@@ -1,12 +1,18 @@
 import Foundation
 
-/// Copies a remote regular file through the existing SSH master without text decoding.
+/// Copies a remote regular file over SSH without text decoding. File reads may
+/// use a separate connection when the terminal master has no free sessions.
 actor RemoteTmuxPreviewFetcher {
     private let maximumBytes: Int64 = 256 * 1_048_576
+    private let sshExecutablePath: String
+
+    init(sshExecutablePath: String = RemoteTmuxHost.defaultSSHExecutablePath()) {
+        self.sshExecutablePath = sshExecutablePath
+    }
 
     func remoteHome(host: RemoteTmuxHost) async throws -> String {
         let output = try await Task.detached(priority: .utility) {
-            try Self.runSSH(host: host, command: "printf '%s' \"$HOME\"")
+            try Self.runSSH(host: host, command: "printf '%s' \"$HOME\"", executable: self.sshExecutablePath)
         }.value
         guard let home = String(data: output, encoding: .utf8), home.hasPrefix("/") else {
             throw RemoteTmuxPreviewError.remoteHomeUnavailable
@@ -16,19 +22,29 @@ actor RemoteTmuxPreviewFetcher {
 
     func fetch(path: String, cwd: String?, host: RemoteTmuxHost) async throws -> URL {
         try await Task.detached(priority: .utility) {
-            try Self.fetchBlocking(path: path, cwd: cwd, host: host, maximumBytes: self.maximumBytes)
+            try Self.fetchBlocking(
+                path: path, cwd: cwd, host: host,
+                maximumBytes: self.maximumBytes, executable: self.sshExecutablePath
+            )
         }.value
     }
 
     private nonisolated static func fetchBlocking(
-        path: String, cwd: String?, host: RemoteTmuxHost, maximumBytes: Int64
+        path: String, cwd: String?, host: RemoteTmuxHost, maximumBytes: Int64, executable: String
     ) throws -> URL {
-        let quotedPath = RemoteTmuxHost.shellSingleQuoted(path)
-        let prefix = cwd.map { "cd -- \(RemoteTmuxHost.shellSingleQuoted($0)) || exit 3; " } ?? ""
-        // python3 is on both the Linux ptmux hosts and macOS. GNU `realpath -m`
-        // is not, and a missing file must still resolve to a path we can reject.
-        let resolve = "\(prefix)p=$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' \(quotedPath)) || exit 4; [ -f \"$p\" ] || exit 5; "
-        let metadata = try runSSH(host: host, command: resolve + "wc -c < \"$p\"")
+        let remotePath: String
+        if path.hasPrefix("/") {
+            remotePath = path
+        } else if let cwd, cwd.hasPrefix("/") {
+            remotePath = cwd + "/" + path
+        } else {
+            throw RemoteTmuxPreviewError.remoteDirectoryUnavailable
+        }
+        // Resolve once against the remote pane. An absolute path must not
+        // depend on an unrelated cwd still existing, or on remote Python.
+        let quotedPath = RemoteTmuxHost.shellSingleQuoted(remotePath)
+        let resolve = "p=\(quotedPath); [ -f \"$p\" ] || exit 5; "
+        let metadata = try runSSH(host: host, command: resolve + "wc -c < \"$p\"", executable: executable)
         guard let size = Int64(String(decoding: metadata, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)) else {
             throw RemoteTmuxPreviewError.remoteFileUnavailable
         }
@@ -50,12 +66,13 @@ actor RemoteTmuxPreviewFetcher {
             let output = try FileHandle(forWritingTo: destination)
             defer { try? output.close() }
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: RemoteTmuxHost.defaultSSHExecutablePath())
-            process.arguments = RemoteTmuxPreviewSSHOptions(host: host).arguments + ["--", host.destination, resolve + "cat -- \"$p\""]
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = RemoteTmuxPreviewSSHOptions(host: host).fileReadArguments + ["--", host.destination, resolve + "cat -- \"$p\""]
             let stdout = Pipe()
             let stderr = Pipe()
             process.standardOutput = stdout
             process.standardError = stderr
+            process.standardInput = FileHandle.nullDevice
             try process.run()
             stdout.fileHandleForWriting.closeFile()
             stderr.fileHandleForWriting.closeFile()
@@ -84,14 +101,15 @@ actor RemoteTmuxPreviewFetcher {
         }
     }
 
-    private nonisolated static func runSSH(host: RemoteTmuxHost, command: String) throws -> Data {
+    private nonisolated static func runSSH(host: RemoteTmuxHost, command: String, executable: String) throws -> Data {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: RemoteTmuxHost.defaultSSHExecutablePath())
-        process.arguments = RemoteTmuxPreviewSSHOptions(host: host).arguments + ["--", host.destination, command]
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = RemoteTmuxPreviewSSHOptions(host: host).fileReadArguments + ["--", host.destination, command]
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
+        process.standardInput = FileHandle.nullDevice
         try process.run()
         stdout.fileHandleForWriting.closeFile()
         stderr.fileHandleForWriting.closeFile()

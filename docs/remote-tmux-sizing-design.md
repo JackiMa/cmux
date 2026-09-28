@@ -41,6 +41,41 @@ Invariants:
 4. A size is sent only when it differs from what the server was last sent.
 5. Across a transport gap, trust a refetched snapshot, not the event stream.
 
+## Older tmux servers without per-window claims
+
+tmux 3.2a accepts the session-wide `refresh-client -C WxH` but rejects the
+`@id:WxH` form. Under its default `window-size latest` policy, a wider attached
+terminal can continue to own the window's dimensions even after our client size
+was accepted. A 139-column mirror can then receive a 188-column pane and clip
+its right side. Comparing the rendered grid only with tmux's assigned grid
+misses this case: both are 188 columns, wider than the viewport.
+
+On rejection, cancel pending per-window claims and configure each mirrored
+window with `set-option -w -t @id window-size smallest`. Continue sending the
+visible mirror's size through the session-wide client claim. Apply the policy
+to newly mirrored windows and replay it with the size claims on reconnect or
+peer detach. Failed policy sends remain retryable.
+Installing a policy invalidates the client-size send baseline: tmux 3.2a can
+defer a hidden window's resize after `set-option`, so another `refresh-client
+-C` must commit it even when the client's dimensions did not change.
+
+This changes the runtime option on those tmux windows, not the global default
+or `tmux.conf`. The window-local policy remains until the window closes or is
+explicitly reconfigured. Remaining clients automatically determine the size
+after cmux detaches; there is no manual size pin to release. A narrower
+co-viewer can leave unused space in a larger cmux viewport. Old servers share
+one client size across the session; independent per-window claims still
+require a server that supports them.
+
+`RemoteTmuxLegacySizingTests` runs the production control connection against
+an isolated tmux socket with two clients. It checks width changes, hidden/new
+windows, replay, unchanged remote selection, an unchanged global default, and
+automatic growth after the smaller client detaches. It uses an installed local
+tmux by default. `TEST_RUNNER_CMUX_LEGACY_SIZING_TMUX` can point to an executable
+that forwards tmux argv over SSH to an older binary; keep the generated `-L`
+argument intact so the fixture never shares a user's server. The regression
+was also run against tmux 3.2a.
+
 ## Correctness is a settled property, not a per-frame one
 
 Exactness is required only at rest. While the user is dragging a divider, or a

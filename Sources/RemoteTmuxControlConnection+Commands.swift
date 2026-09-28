@@ -413,6 +413,12 @@ extension RemoteTmuxControlConnection {
         // while a smaller peer legitimately clamped the window must not suppress
         // recovery after that peer leaves.
         windowClaimParityRearmsSpent.removeAll()
+        if !supportsPerWindowSize {
+            legacyWindowSizingConfigured.removeAll()
+            for windowId in lastWindowSizes.keys.sorted() {
+                configureLegacyWindowSizing(windowId: windowId)
+            }
+        }
         if let size = lastClientSize {
             if send("refresh-client -C \(size.columns)x\(size.rows)") {
                 lastSentClientSize = size

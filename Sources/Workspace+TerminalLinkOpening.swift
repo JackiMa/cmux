@@ -1,3 +1,4 @@
+import Bonsplit
 import CmuxPanes
 import Foundation
 
@@ -30,7 +31,7 @@ extension Workspace: TerminalLinkOpenContainer {
         }
         return RemoteTmuxPreviewContext(
             host: host,
-            cwd: effectivePanelDirectory(panelId: sourcePanelId)
+            paneId: location.pane.tmuxPaneID
         )
     }
 
@@ -60,15 +61,54 @@ extension Workspace: TerminalLinkOpenContainer {
     }
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool = true) -> Bool {
-        guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
+        openTerminalBrowserPanel(url: url, sourcePanelId: sourcePanelId, focus: focus) != nil
+    }
+
+    func openTerminalBrowserPanel(url: URL, sourcePanelId: UUID, focus: Bool) -> BrowserPanel? {
+        guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return nil }
         if let targetPane = preferredRightSideTargetPane(fromPanelId: target.containerPanelID) {
-            return newBrowserSurface(inPane: targetPane, url: url, focus: focus) != nil
+            return newBrowserSurface(
+                inPane: targetPane, url: url, focus: focus,
+                allowsExternalBrowserFallback: !isRemoteTmuxMirror
+            )
         }
         return newBrowserSplit(
             from: target.containerPanelID,
             orientation: .horizontal,
             url: url,
-            focus: focus
-        ) != nil
+            focus: focus,
+            allowsExternalBrowserFallback: !isRemoteTmuxMirror
+        )
+    }
+}
+
+extension Workspace {
+    /// Finds the tmux window strip independently of focus in a local preview.
+    func remoteTmuxWindowsPaneId() -> PaneID? {
+        bonsplitController.allPaneIds.first { pane in
+            bonsplitController.tabs(inPane: pane).contains { tab in
+                panelIdFromSurfaceId(tab.id).map { panels[$0] is TerminalPanel } == true
+            }
+        } ?? bonsplitController.allPaneIds.first { bonsplitController.tabs(inPane: $0).isEmpty }
+    }
+
+    /// Reuses one outer pane for browsers and downloaded remote files.
+    func remoteTmuxPreviewPaneId() -> PaneID? {
+        guard isRemoteTmuxMirror else { return nil }
+        return bonsplitController.allPaneIds.first { pane in
+            let tabs = bonsplitController.tabs(inPane: pane)
+            return !tabs.isEmpty && tabs.allSatisfy { tab in
+                guard let panelId = panelIdFromSurfaceId(tab.id), let panel = panels[panelId] else { return false }
+                return panel is BrowserPanel || panel is FilePreviewPanel
+            }
+        }
+    }
+
+    /// Grants a synchronous split only for the local preview being installed.
+    func performRemoteTmuxPreviewSplit<T>(_ split: () -> T) -> T {
+        let previous = isCreatingRemoteTmuxPreviewSplit
+        isCreatingRemoteTmuxPreviewSplit = isRemoteTmuxMirror
+        defer { isCreatingRemoteTmuxPreviewSplit = previous }
+        return split()
     }
 }

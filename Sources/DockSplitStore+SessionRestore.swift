@@ -235,7 +235,8 @@ extension DockSplitStore {
             snapshot,
             workspaceId: workspaceId
         )
-        guard let terminalSnapshot = snapshot.terminal else { return nil }
+        guard let savedTerminalSnapshot = snapshot.terminal else { return nil }
+        let terminalSnapshot = savedTerminalSnapshot.reconcilingConfirmedAgentBinding(surfaceID: snapshot.id)
         let policy = Workspace.makeSessionRestorePolicyService()
         let localTmuxStartCommand = policy.localTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
         let restorableAgent = localTmuxStartCommand == nil

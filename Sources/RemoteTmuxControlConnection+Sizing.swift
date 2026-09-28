@@ -29,6 +29,7 @@ extension RemoteTmuxControlConnection {
 
     func removeWindowSizeClaim(windowId: Int) {
         windowClaimParityRearmsSpent.removeValue(forKey: windowId)
+        legacyWindowSizingConfigured.remove(windowId)
         guard let removed = lastWindowSizes.removeValue(forKey: windowId) else {
             sentWindowSizes.removeValue(forKey: windowId)
             return
@@ -46,6 +47,7 @@ extension RemoteTmuxControlConnection {
     func retainWindowSizeClaims(for liveWindowIDs: Set<Int>) {
         lastWindowSizes = lastWindowSizes.filter { liveWindowIDs.contains($0.key) }
         sentWindowSizes = sentWindowSizes.filter { liveWindowIDs.contains($0.key) }
+        legacyWindowSizingConfigured.formIntersection(liveWindowIDs)
         windowClaimParityRearmsSpent = windowClaimParityRearmsSpent.filter { liveWindowIDs.contains($0.key) }
         maximumWindowClaimColumns = lastWindowSizes.values.reduce(0) { max($0, $1.0) }
         maximumWindowClaimRows = lastWindowSizes.values.reduce(0) { max($0, $1.1) }
@@ -138,10 +140,10 @@ extension RemoteTmuxControlConnection {
     /// ``reseedAfterReconnect()`` re-pins every window (a fresh ssh client
     /// otherwise reverts everything to 80×24).
     ///
-    /// If the server rejects the `@id:` form (`%error` — pre-3.x tmux), the
-    /// connection flips to the session-wide fallback for its lifetime and
-    /// surfaces the degraded mode in diagnostics; callers keep calling this
-    /// method either way.
+    /// If the server rejects the `@id:` form (including tmux 3.2a), the
+    /// connection uses a session-wide client size and configures mirrored
+    /// windows to follow the smallest client. A session-wide claim alone cannot
+    /// constrain a wider peer under `window-size latest`.
     func setWindowSize(windowId: Int, columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }
         // Record desired state before dedup. If a different debounced size is
@@ -150,6 +152,7 @@ extension RemoteTmuxControlConnection {
         _ = recordWindowSizeClaim(windowId: windowId, columns: columns, rows: rows)
         lastSizeRequestWindowId = windowId
         guard supportsPerWindowSize else {
+            configureLegacyWindowSizing(windowId: windowId)
             setClientSize(columns: columns, rows: rows)
             return
         }
@@ -269,6 +272,7 @@ extension RemoteTmuxControlConnection {
     /// Sends the per-window form, tagging the command so an `%error` reply
     /// can flip the capability off and replay via the session-wide path.
     func sendPerWindowSize(windowId: Int, columns: Int, rows: Int) {
+        guard supportsPerWindowSize else { return }
         // Record AFTER the send reports success: a send attempted while the
         // transport is down returns false, and recording it anyway makes
         // the ledger claim the server has a size it never received — dedup
@@ -289,7 +293,15 @@ extension RemoteTmuxControlConnection {
     func notePerWindowSizeRejected() {
         guard supportsPerWindowSize else { return }
         supportsPerWindowSize = false
-        record("remote.tmux.perWindowSize unsupported; falling back to session-wide client size")
+        for task in windowSizeDebounceTasks.values { task.cancel() }
+        windowSizeDebounceTasks.removeAll()
+        for task in perWindowRedrawKickTasks.values { task.cancel() }
+        perWindowRedrawKickTasks.removeAll()
+        sentWindowSizes.removeAll()
+        record("remote.tmux.perWindowSize unsupported; using smallest windows with session-wide client size")
+        for windowId in lastWindowSizes.keys.sorted() {
+            configureLegacyWindowSizing(windowId: windowId)
+        }
         // Replay the most recently requested window's size — deterministic,
         // and in practice the visible tab's. (`.values.first` on a Dictionary
         // could hand the session a hidden tab's stale claim.)
@@ -297,6 +309,29 @@ extension RemoteTmuxControlConnection {
         if let replay {
             setClientSize(columns: replay.0, rows: replay.1)
         }
+    }
+
+    /// Old tmux cannot cap a window per control client. Its default `latest`
+    /// policy may keep following a wider terminal even after our -C succeeds;
+    /// rendering that authoritative grid then clips the right side locally.
+    /// Use tmux's automatic smallest-client policy for each mirrored window.
+    /// This is window-local, leaves the global default alone, and grows again
+    /// when a smaller client detaches (unlike a manual `resize-window` pin).
+    func configureLegacyWindowSizing(windowId: Int) {
+        guard !supportsPerWindowSize,
+              connectionState == .connected,
+              !legacyWindowSizingConfigured.contains(windowId) else { return }
+        guard sendTracked(
+            "set-option -w -t @\(windowId) window-size smallest",
+            completion: { [weak self] succeeded in
+                if !succeeded { self?.legacyWindowSizingConfigured.remove(windowId) }
+            }
+        ) else { return }
+        legacyWindowSizingConfigured.insert(windowId)
+        // tmux 3.2 defers an option-driven resize of a hidden/new window.
+        // Even an unchanged -C commits it immediately, so the following client
+        // size apply must not dedup against the pre-policy send.
+        lastSentClientSize = nil
     }
 
 
@@ -354,8 +389,8 @@ extension RemoteTmuxControlConnection {
                 return
             } else {
                 // Only kick when some mirrored window ALREADY has the target size — i.e. the
-                // size apply above cannot produce a SIGWINCH for it. (window-size latest makes
-                // every window track the client, so one client-level kick redraws them all.)
+                // size apply above cannot produce a SIGWINCH for it. A client-level
+                // kick redraws the windows whose size is bounded by this client.
                 let windowAlreadyAtTarget = windowsByID.values.contains {
                     Self.windowMatchesClaim(
                         windowColumns: $0.width, windowRows: $0.height,

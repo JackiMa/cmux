@@ -23,6 +23,9 @@ printf 'cmux\n' > "$SRCROOT/Resources/shell-integration/cmux.zsh"
 printf 'alternate\n' > "$SRCROOT/Resources/shell-integration/alternate.zsh"
 ln -s cmux.zsh "$SRCROOT/Resources/shell-integration/current.zsh"
 printf 'plist\n' > "$BUILD_DIR/Products/Info.plist"
+PACKAGE_BUNDLE="CmuxFoundation_CmuxFoundation.bundle"
+mkdir -p "$BUILD_DIR/Resources/$PACKAGE_BUNDLE/en.lproj"
+printf '"fixture" = "Package localization";\n' > "$BUILD_DIR/Resources/$PACKAGE_BUNDLE/en.lproj/Localizable.strings"
 # A tracked source file outside every directory the phase copies, so only the
 # Ghostty worktree part of the stamp can notice it changing.
 printf 'helper-source-v1\n' > "$SRCROOT/ghostty/src/main.zig"
@@ -93,6 +96,15 @@ run_app_phase() {
 run_phase > "$TMP_DIR/first.log"
 run_phase > "$TMP_DIR/second.log"
 grep -q 'skipping helper rebuilds' "$TMP_DIR/second.log"
+
+# SwiftPM's executable resource lookup starts beside the embedded CLI. The
+# package resources must also be readable there after both cold and warm builds.
+cmp "$BUILD_DIR/Resources/$PACKAGE_BUNDLE/en.lproj/Localizable.strings" \
+  "$BUILD_DIR/Resources/bin/$PACKAGE_BUNDLE/en.lproj/Localizable.strings"
+rm "$BUILD_DIR/Resources/bin/$PACKAGE_BUNDLE"
+run_phase > "$TMP_DIR/missing-cli-package-resources.log"
+cmp "$BUILD_DIR/Resources/$PACKAGE_BUNDLE/en.lproj/Localizable.strings" \
+  "$BUILD_DIR/Resources/bin/$PACKAGE_BUNDLE/en.lproj/Localizable.strings"
 
 chmod -x "$BUILD_DIR/Resources/bin/ghostty"
 run_phase > "$TMP_DIR/non-executable-helper.log"
