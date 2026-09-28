@@ -23,11 +23,18 @@ actor RemoteTmuxPreviewFetcher {
     private nonisolated static func fetchBlocking(
         path: String, cwd: String?, host: RemoteTmuxHost, maximumBytes: Int64
     ) throws -> URL {
-        let quotedPath = RemoteTmuxHost.shellSingleQuoted(path)
-        let prefix = cwd.map { "cd -- \(RemoteTmuxHost.shellSingleQuoted($0)) || exit 3; " } ?? ""
-        // python3 is on both the Linux ptmux hosts and macOS. GNU `realpath -m`
-        // is not, and a missing file must still resolve to a path we can reject.
-        let resolve = "\(prefix)p=$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' \(quotedPath)) || exit 4; [ -f \"$p\" ] || exit 5; "
+        let remotePath: String
+        if path.hasPrefix("/") {
+            remotePath = path
+        } else if let cwd, cwd.hasPrefix("/") {
+            remotePath = cwd + "/" + path
+        } else {
+            throw RemoteTmuxPreviewError.remoteDirectoryUnavailable
+        }
+        // Resolve once against the remote pane. An absolute path must not
+        // depend on an unrelated cwd still existing, or on remote Python.
+        let quotedPath = RemoteTmuxHost.shellSingleQuoted(remotePath)
+        let resolve = "p=\(quotedPath); [ -f \"$p\" ] || exit 5; "
         let metadata = try runSSH(host: host, command: resolve + "wc -c < \"$p\"")
         guard let size = Int64(String(decoding: metadata, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)) else {
             throw RemoteTmuxPreviewError.remoteFileUnavailable

@@ -35,7 +35,7 @@ extension TerminalLinkOpenContainer {
 
 struct RemoteTmuxPreviewContext: Sendable {
     let host: RemoteTmuxHost
-    let cwd: String?
+    let paneId: Int
 }
 
 extension TerminalLinkOpenContainer {

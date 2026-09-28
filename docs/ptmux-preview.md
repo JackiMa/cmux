@@ -18,10 +18,16 @@ the macOS app renders them through tmux control mode over SSH.
 | Route a click into a browser or file preview | `Sources/TerminalLinkOpenCoordinator.swift` |
 | Create and place local preview panels | `Sources/Workspace.swift` |
 
-The terminal's own tmux pane supplies the remote working directory. Relative
-paths resolve against that directory. A directory used inside an agent's tool
+Absolute file paths are read directly on the remote host, without changing to
+the terminal directory. They also work when that directory is unknown or has
+been removed. Relative paths query the clicked tmux pane's current directory at
+click time and resolve against it, including immediately after a remote `cd`.
+The local terminal directory and cached sidebar directory do not affect this
+lookup. A directory used inside an agent's tool
 call can differ from the tmux shell directory, so agent output should use an
 absolute remote path when linking to an artifact outside the shell directory.
+If the resulting remote path does not exist, report that path; do not search
+other directories for a matching filename.
 
 For example, if the shell is in `/srv/project` but the image is
 `/srv/project/artifacts/run/visuals/frames.png`, use that absolute path or

@@ -97,15 +97,15 @@ struct RemoteTmuxPreviewRoutingTests {
         #expect(!commands.split(separator: "\n").contains { $0.hasPrefix("split-window ") })
     }
 
-    @Test func relativeFileUsesItsOwnRemotePaneDirectory() throws {
+    @Test func fileContextIdentifiesTheClickedRemotePane() throws {
         let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness()
         defer { harness.tearDown() }
         harness.mirror.updatePaneCwd(paneId: 11, path: "/srv/artifacts/run")
         harness.mirror.updatePaneCwd(paneId: 22, path: "/srv/other")
         let source = try #require(harness.mirror.panel(forPane: 11))
         let context = try #require(harness.workspace.remoteTmuxPreviewContext(for: source.id))
-        #expect(RemoteTmuxPreviewTarget(
-            raw: "visuals_20260927_1630/getup_9250_frames.png", cwd: context.cwd, home: nil
-        ) == .remoteFile(absolutePOSIXPath: "/srv/artifacts/run/visuals_20260927_1630/getup_9250_frames.png"))
+        #expect(context.paneId == 11)
+        let other = try #require(harness.mirror.panel(forPane: 22))
+        #expect(harness.workspace.remoteTmuxPreviewContext(for: other.id)?.paneId == 22)
     }
 }

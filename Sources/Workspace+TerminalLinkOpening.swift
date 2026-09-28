@@ -31,7 +31,7 @@ extension Workspace: TerminalLinkOpenContainer {
         }
         return RemoteTmuxPreviewContext(
             host: host,
-            cwd: effectivePanelDirectory(panelId: sourcePanelId)
+            paneId: location.pane.tmuxPaneID
         )
     }
 
