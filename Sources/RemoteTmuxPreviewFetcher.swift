@@ -1,6 +1,7 @@
 import Foundation
 
-/// Copies a remote regular file through the existing SSH master without text decoding.
+/// Copies a remote regular file over SSH without text decoding. File reads may
+/// use a separate connection when the terminal master has no free sessions.
 actor RemoteTmuxPreviewFetcher {
     private let maximumBytes: Int64 = 256 * 1_048_576
     private let sshExecutablePath: String
@@ -66,11 +67,12 @@ actor RemoteTmuxPreviewFetcher {
             defer { try? output.close() }
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executable)
-            process.arguments = RemoteTmuxPreviewSSHOptions(host: host).arguments + ["--", host.destination, resolve + "cat -- \"$p\""]
+            process.arguments = RemoteTmuxPreviewSSHOptions(host: host).fileReadArguments + ["--", host.destination, resolve + "cat -- \"$p\""]
             let stdout = Pipe()
             let stderr = Pipe()
             process.standardOutput = stdout
             process.standardError = stderr
+            process.standardInput = FileHandle.nullDevice
             try process.run()
             stdout.fileHandleForWriting.closeFile()
             stderr.fileHandleForWriting.closeFile()
@@ -102,11 +104,12 @@ actor RemoteTmuxPreviewFetcher {
     private nonisolated static func runSSH(host: RemoteTmuxHost, command: String, executable: String) throws -> Data {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = RemoteTmuxPreviewSSHOptions(host: host).arguments + ["--", host.destination, command]
+        process.arguments = RemoteTmuxPreviewSSHOptions(host: host).fileReadArguments + ["--", host.destination, command]
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
+        process.standardInput = FileHandle.nullDevice
         try process.run()
         stdout.fileHandleForWriting.closeFile()
         stderr.fileHandleForWriting.closeFile()

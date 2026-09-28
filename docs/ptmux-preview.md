@@ -29,6 +29,19 @@ absolute remote path when linking to an artifact outside the shell directory.
 If the resulting remote path does not exist, report that path; do not search
 other directories for a matching filename.
 
+File reads first reuse the terminal's SSH master. When its session channels are
+full or its socket is gone, OpenSSH can use a separate non-interactive connection
+with the same destination, port, identity and configured proxy. Host-key checks
+and authentication policy still apply; no password prompt is opened. This also
+applies to file-size and home-directory queries. Configured port forwards are
+cleared on file-read connections so a download cannot collide with an existing
+listener. No SSH server configuration change is needed.
+
+`Session open refused by peer` can occur after many tmux sessions are restored:
+each control client occupies an SSH session channel. Web forwarding uses a
+different channel type and can still work. See OpenSSH's
+[MaxSessions documentation](https://man.openbsd.org/sshd_config#MaxSessions).
+
 For example, if the shell is in `/srv/project` but the image is
 `/srv/project/artifacts/run/visuals/frames.png`, use that absolute path or
 `artifacts/run/visuals/frames.png`. The link `visuals/frames.png` alone refers
@@ -55,6 +68,8 @@ CLI. Do not use the unscoped `/tmp/cmux-cli` helper.
 ## Focused verification
 
 `RemoteTmuxPreviewTargetTests` covers path and localhost URL classification.
+`RemoteTmuxPreviewFetcherTests` executes file reads with available, saturated,
+missing, and newly saturated mux channels, including binary data and quoted paths.
 `RemoteTmuxPreviewRoutingTests` exercises real workspace browser/file creation,
 pane placement, focus preservation, and the absence of unintended tmux splits.
 Run these through the `cmux-unit` scheme with a tagged DerivedData path and
@@ -115,6 +130,12 @@ key material. Pass its path through `TEST_RUNNER_CMUX_LIVE_PTMUX_FIXTURE` when
 running the targeted native suite with the tag's DerivedData and test bundle ID.
 The test exercises the same coordinator invoked by terminal link clicks; it does
 not synthesize a physical Cmd-click gesture.
+
+To reproduce channel exhaustion against an already saturated terminal master,
+pass a fixture for that exact connection identity through
+`TEST_RUNNER_CMUX_LIVE_PTMUX_BUSY_FIXTURE`. The additional live test first requires
+the real mux refusal, then verifies absolute and relative binary downloads by
+SHA-256. It only reads from that master and never closes or replaces it.
 
 ## Agent restore diagnosis
 
