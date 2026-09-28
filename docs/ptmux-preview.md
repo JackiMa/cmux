@@ -11,6 +11,7 @@ the macOS app renders them through tmux control mode over SSH.
 | Discover and restore ptmux sessions | `Sources/RemoteTmuxSSHTransport.swift` |
 | Own SSH connections and preview services | `Sources/RemoteTmuxController.swift` |
 | Mirror remote windows and panes | `Sources/RemoteTmuxSessionMirror*.swift`, `Sources/RemoteTmuxWindowMirror*.swift` |
+| Synchronize remote window dimensions | `Sources/RemoteTmuxControlConnection+Sizing.swift` |
 | Classify a clicked URL or file path | `Sources/RemoteTmuxPreviewTarget.swift` |
 | Resolve the clicked terminal's host and directory | `Sources/Workspace+TerminalLinkOpening.swift` |
 | Fetch a remote file through SSH | `Sources/RemoteTmuxPreviewFetcher.swift` |
@@ -51,6 +52,19 @@ Remote `http://127.0.0.1:PORT/` and `http://localhost:PORT/` URLs refer to the
 SSH host. The preview service allocates a free local port and carries traffic
 through the existing SSH master. The resulting local port can differ from
 the remote port. A disconnected SSH master must be reconnected first.
+
+## Cropped remote terminal width
+
+On tmux 3.2a, a second, wider client can keep a window wider than the local
+viewport. The old fallback sent a session-wide size but left tmux's `latest`
+window policy in control. The app now switches mirrored windows to tmux's
+automatic `smallest` policy when per-window client sizing is unsupported.
+Resizing, new windows, and reconnect replay use the same sizing path. Multiple
+viewers use the smallest dimensions, so a larger viewer can have unused space.
+The policy is local to each mirrored tmux window and remains until that window
+closes or is reconfigured; it does not edit the global default or `tmux.conf`.
+See [the sizing design](remote-tmux-sizing-design.md#older-tmux-servers-without-per-window-claims)
+for the regression harness and compatibility limit.
 
 ## Initialize and build
 
