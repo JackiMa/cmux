@@ -12,12 +12,14 @@ import Testing
         SessionRestorableAgentSnapshot(kind: .codex, sessionId: id, workingDirectory: nil, launchCommand: nil)
     }
 
-    @Test func legacyUnknownKeepsManualIdentityWithoutAutoResume() {
+    @Test func legacyUnknownResumesBoundAgent() {
         let snapshot = SessionTerminalPanelSnapshot(agent: agent("manual-id"))
         let observation = TerminalRecoveryObservation.migrated(from: snapshot)
         #expect(observation.state == .unknown)
         #expect(observation.lastKnownAgent?.sessionID == "manual-id")
-        #expect(snapshot.recoveryPlan().action == .shell)
+        #expect(snapshot.recoveryPlan().action == .resumeAgent(
+            TerminalRecoveryAgentIdentity(kind: "codex", sessionID: "manual-id")!
+        ))
     }
 
     @Test func missingSessionIDCannotConfirmAnAgent() {
@@ -37,12 +39,14 @@ import Testing
         #expect(plan.action == .resumeAgent(TerminalRecoveryAgentIdentity(kind: "codex", sessionID: "exact-id")!))
     }
 
-    @Test func exitedAgentBecomesShellAndRetainsManualIdentity() {
+    @Test func exitedAgentRetainsAutomaticRestoreIntent() {
         let snapshot = SessionTerminalPanelSnapshot(agent: agent("old-id"), wasAgentRunning: false)
         let observation = TerminalRecoveryObservation.migrated(from: snapshot)
         #expect(observation.state == .shell)
         #expect(observation.lastKnownAgent?.sessionID == "old-id")
-        #expect(snapshot.recoveryPlan().action == .shell)
+        #expect(snapshot.recoveryPlan().action == .resumeAgent(
+            TerminalRecoveryAgentIdentity(kind: "codex", sessionID: "old-id")!
+        ))
     }
 
     @Test func foregroundOtherProcessRestoresAsShell() {
@@ -110,8 +114,8 @@ import Testing
     }
 
     @MainActor
-    @Test(arguments: [RestorableAgentKind.codex, .claude, .grok])
-    func confirmedRunningAgentRepairsRetiredAutomaticBinding(kind: RestorableAgentKind) throws {
+    @Test(arguments: [RestorableAgentKind.codex, .claude, .grok], [true, false, nil] as [Bool?])
+    func boundAgentRestoresRegardlessOfProcessState(kind: RestorableAgentKind, wasRunning: Bool?) throws {
         let suite = "cmux-recovery-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -130,7 +134,7 @@ import Testing
                 checkpointId: identity, source: "agent-hook", autoResume: false,
                 approvalPolicy: .auto
             ),
-            wasAgentRunning: true
+            wasAgentRunning: wasRunning
         ).recordingRecovery(surfaceID: panelID, previous: nil, freshEvidence: true)
         // Reproduce the contradictory snapshot written by the previous build.
         snapshot.panels[0].terminal?.resumeBinding?.autoResume = false
@@ -171,7 +175,7 @@ import Testing
         #expect(snapshot.resumeBinding?.autoResume == false)
     }
 
-    @Test func unknownExitedOrForeignSurfaceCannotReenableABinding() {
+    @Test func processStateDoesNotRetireBindingButOwnershipAndApprovalStillApply() {
         let surfaceID = UUID()
         let running = SessionTerminalPanelSnapshot(
             agent: agent("exact-id"),
@@ -184,10 +188,10 @@ import Testing
         #expect(running.reconcilingConfirmedAgentBinding(surfaceID: UUID()).resumeBinding?.autoResume == false)
         var exited = running
         exited.wasAgentRunning = false
-        #expect(exited.reconcilingConfirmedAgentBinding(surfaceID: surfaceID).resumeBinding?.autoResume == false)
+        #expect(exited.reconcilingConfirmedAgentBinding(surfaceID: surfaceID).resumeBinding?.autoResume == true)
         var unknown = running
         unknown.recovery?.state = .unknown
-        #expect(unknown.reconcilingConfirmedAgentBinding(surfaceID: surfaceID).resumeBinding?.autoResume == false)
+        #expect(unknown.reconcilingConfirmedAgentBinding(surfaceID: surfaceID).resumeBinding?.autoResume == true)
         var conflicting = running
         conflicting.agent = agent("different-id")
         #expect(conflicting.reconcilingConfirmedAgentBinding(surfaceID: surfaceID).resumeBinding?.autoResume == false)
@@ -197,5 +201,37 @@ import Testing
         var persistent = running
         persistent.remotePTYSessionID = "remote-pty"
         #expect(persistent.reconcilingConfirmedAgentBinding(surfaceID: surfaceID).resumeBinding?.autoResume == false)
+    }
+
+    @Test func bindingOnlyExitedAgentResumesButUnboundHistoryDoesNot() {
+        let surfaceID = UUID()
+        let snapshot = SessionTerminalPanelSnapshot(
+            resumeBinding: SurfaceResumeBindingSnapshot(
+                kind: "codex", command: "/usr/bin/true", checkpointId: "bound-id",
+                source: "agent-hook", autoResume: false, approvalPolicy: .auto
+            ),
+            wasAgentRunning: false
+        ).recordingRecovery(surfaceID: surfaceID, previous: nil)
+        #expect(snapshot.recoveryPlan(surfaceID: surfaceID).action == .resumeAgent(
+            TerminalRecoveryAgentIdentity(kind: "codex", sessionID: "bound-id")!
+        ))
+        var unbound = snapshot
+        unbound.resumeBinding = nil
+        #expect(unbound.recoveryPlan(surfaceID: surfaceID).action == .shell)
+    }
+
+    @MainActor
+    @Test func completedAgentBindingSurvivesWorkspaceSnapshot() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(agent("completed-id"), panelId: panelID)
+        workspace.restoredAgentLifecycle.setResumeState(.completedAgentExit, panelId: panelID)
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let terminal = try #require(snapshot.panels.first?.terminal)
+        #expect(terminal.agent?.sessionId == "completed-id")
+        #expect(terminal.recoveryPlan(surfaceID: panelID).action == .resumeAgent(
+            TerminalRecoveryAgentIdentity(kind: "codex", sessionID: "completed-id")!
+        ))
     }
 }
