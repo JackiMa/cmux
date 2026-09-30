@@ -143,36 +143,44 @@ extension SessionTerminalPanelSnapshot {
         } else {
             snapshot.recovery = candidate
         }
-        return freshEvidence ? snapshot.reconcilingConfirmedAgentBinding(surfaceID: surfaceID) : snapshot
+        return freshEvidence ? snapshot.reconcilingAgentBindingForRestore(surfaceID: surfaceID) : snapshot
     }
 
-    /// Retirement clears the hook's automatic-launch bit without changing its
-    /// approval policy. A newer confirmed observation of the same running agent
-    /// must not carry that retired bit into the next deferred launch.
-    func reconcilingConfirmedAgentBinding(surfaceID: UUID) -> Self {
-        guard wasAgentRunning == true, let recovery,
-              recovery.surfaceID == surfaceID, recovery.state == .agent,
-              let observedAgent = recovery.agent else { return self }
+    /// A bound session retains automatic restore intent after its process exits.
+    func reconcilingAgentBindingForRestore(surfaceID: UUID) -> Self {
+        guard case .resumeAgent(let boundAgent) = recoveryPlan(surfaceID: surfaceID).action else {
+            return self
+        }
         var candidate = self
         for keyPath in [\Self.resumeBinding, \Self.managedAgentResumeBinding] {
             guard var binding = candidate[keyPath: keyPath],
                   binding.isAgentHookBinding, binding.autoResume == false,
-                  binding.approvalPolicy == .auto,
-                  TerminalRecoveryAgentIdentity(kind: binding.kind, sessionID: binding.checkpointId) == observedAgent
+                  binding.approvalPolicy == nil || binding.approvalPolicy == .auto,
+                  TerminalRecoveryAgentIdentity(kind: binding.kind, sessionID: binding.checkpointId) == boundAgent
             else { continue }
             binding.autoResume = true
             candidate[keyPath: keyPath] = binding
         }
-        // Keep attachment precedence, identity conflict checks, and ownership
-        // checks in the same recovery policy used by both terminal containers.
-        guard candidate.recoveryPlan(surfaceID: surfaceID).action == .resumeAgent(observedAgent) else {
-            return self
-        }
         return candidate
     }
 
+    /// The session still attached to this panel, independent of process liveness.
+    var boundAgentIdentityForRestore: TerminalRecoveryAgentIdentity? {
+        let binding = managedAgentResumeBinding ?? resumeBinding
+        let savedAgent = TerminalRecoveryAgentIdentity(kind: agent?.kind.rawValue, sessionID: agent?.sessionId)
+        let savedBinding = binding.flatMap {
+            $0.isAgentHookBinding || $0.hasCompleteManagedSessionIdentity
+                ? TerminalRecoveryAgentIdentity(kind: $0.kind, sessionID: $0.checkpointId)
+                : nil
+        }
+        if let savedAgent, let savedBinding, savedAgent != savedBinding {
+            return nil
+        }
+        return savedBinding ?? savedAgent
+    }
+
     func recoveryPlan(surfaceID: UUID? = nil, claimedOwnerSurfaceID: UUID? = nil) -> TerminalRecoveryPlan {
-        let observation = recovery ?? .migrated(from: self, surfaceID: surfaceID)
+        var observation = recovery ?? .migrated(from: self, surfaceID: surfaceID)
         let savedAgent = TerminalRecoveryAgentIdentity(kind: agent?.kind.rawValue, sessionID: agent?.sessionId)
         let savedBinding = TerminalRecoveryAgentIdentity(
             kind: (managedAgentResumeBinding ?? resumeBinding)?.kind,
@@ -191,6 +199,16 @@ extension SessionTerminalPanelSnapshot {
            let observedAgent = observation.agent,
            (savedIdentities.isEmpty || savedIdentities.contains(where: { $0 != observedAgent })) {
             return TerminalRecoveryPlan(action: .shell, reason: "saved agent identity conflicts with recovery observation")
+        }
+        // Process observations describe the old execution. The panel's saved
+        // binding decides what to launch when the application reopens.
+        if let boundAgent = boundAgentIdentityForRestore {
+            observation.state = .agent
+            observation.agent = boundAgent
+            observation.diagnosticReason = nil
+        } else {
+            observation.state = .shell
+            observation.agent = nil
         }
         return TerminalRecoveryPlan.decide(
             observation: observation,

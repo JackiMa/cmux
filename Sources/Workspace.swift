@@ -504,8 +504,7 @@ extension Workspace {
                 ) == nil ? nil : state
             }
             : nil
-        let restoredAgentCompleted = restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit
-        let effectiveRestorableAgent = localTmuxStartCommand == nil && !restoredAgentCompleted
+        let effectiveRestorableAgent = localTmuxStartCommand == nil
             ? Self.restorableAgentForSessionRestore(
                 restoredAgentLifecycle.reconcileSnapshotWithQueuedRestoreIntent(
                     panelId: panelId,
@@ -1613,7 +1612,7 @@ extension Workspace {
             if isRemoteTmuxMirror {
                 return restoreRemoteTmuxDisplayPanel(snapshot, in: paneId)
             }
-            snapshot.terminal = snapshot.terminal?.reconcilingConfirmedAgentBinding(surfaceID: snapshot.id)
+            snapshot.terminal = snapshot.terminal?.reconcilingAgentBindingForRestore(surfaceID: snapshot.id)
             if restoresDeviceProjection {
                 return restoreDeviceDisplayPanel(snapshot, in: paneId)
             }
@@ -1630,7 +1629,8 @@ extension Workspace {
             let recoveryObservation = snapshot.terminal?.recovery
                 ?? snapshot.terminal.map { TerminalRecoveryObservation.migrated(from: $0, surfaceID: snapshot.id) }
             recoveryObservationsByPanelId[snapshot.id] = recoveryObservation
-            let claimedRecoveryOwner = recoveryObservation?.agent.flatMap { recoveryPlannedAgentOwners[$0] }
+            let boundAgent = snapshot.terminal?.boundAgentIdentityForRestore
+            let claimedRecoveryOwner = boundAgent.flatMap { recoveryPlannedAgentOwners[$0] }
             let recoveryPlan = snapshot.terminal?.recoveryPlan(
                 surfaceID: snapshot.id, claimedOwnerSurfaceID: claimedRecoveryOwner
             )
@@ -1639,7 +1639,7 @@ extension Workspace {
                       case .resumeAgent = recoveryPlan?.action else { return false }
                 return true
             }()
-            if shouldAutoResumeAgent, let agent = recoveryObservation?.agent {
+            if shouldAutoResumeAgent, let agent = boundAgent {
                 recoveryPlannedAgentOwners[agent] = snapshot.id
             }
             let remoteStartupCommand = remoteTerminalStartupCommand()

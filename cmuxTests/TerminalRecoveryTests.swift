@@ -75,10 +75,11 @@ import Testing
         ))
     }
 
-    @Test func duplicateSessionDoesNotResumeOnSecondSurface() {
+    @Test(arguments: [true, false, nil] as [Bool?])
+    func duplicateSessionDoesNotResumeOnSecondSurface(wasRunning: Bool?) {
         let first = UUID()
         let second = UUID()
-        let snapshot = SessionTerminalPanelSnapshot(agent: agent("shared-id"), wasAgentRunning: true)
+        let snapshot = SessionTerminalPanelSnapshot(agent: agent("shared-id"), wasAgentRunning: wasRunning)
         let owned = snapshot.recordingRecovery(surfaceID: first, previous: nil)
         #expect(owned.recoveryPlan(surfaceID: first).action == .resumeAgent(
             TerminalRecoveryAgentIdentity(kind: "codex", sessionID: "shared-id")!
@@ -185,22 +186,25 @@ import Testing
             ),
             wasAgentRunning: true
         ).recordingRecovery(surfaceID: surfaceID, previous: nil)
-        #expect(running.reconcilingConfirmedAgentBinding(surfaceID: UUID()).resumeBinding?.autoResume == false)
+        #expect(running.reconcilingAgentBindingForRestore(surfaceID: UUID()).resumeBinding?.autoResume == false)
         var exited = running
         exited.wasAgentRunning = false
-        #expect(exited.reconcilingConfirmedAgentBinding(surfaceID: surfaceID).resumeBinding?.autoResume == true)
+        #expect(exited.reconcilingAgentBindingForRestore(surfaceID: surfaceID).resumeBinding?.autoResume == true)
+        var legacy = exited
+        legacy.resumeBinding?.approvalPolicy = nil
+        #expect(legacy.reconcilingAgentBindingForRestore(surfaceID: surfaceID).resumeBinding?.autoResume == true)
         var unknown = running
         unknown.recovery?.state = .unknown
-        #expect(unknown.reconcilingConfirmedAgentBinding(surfaceID: surfaceID).resumeBinding?.autoResume == true)
+        #expect(unknown.reconcilingAgentBindingForRestore(surfaceID: surfaceID).resumeBinding?.autoResume == true)
         var conflicting = running
         conflicting.agent = agent("different-id")
-        #expect(conflicting.reconcilingConfirmedAgentBinding(surfaceID: surfaceID).resumeBinding?.autoResume == false)
+        #expect(conflicting.reconcilingAgentBindingForRestore(surfaceID: surfaceID).resumeBinding?.autoResume == false)
         var prompt = running
         prompt.resumeBinding?.approvalPolicy = .prompt
-        #expect(prompt.reconcilingConfirmedAgentBinding(surfaceID: surfaceID).resumeBinding?.autoResume == false)
+        #expect(prompt.reconcilingAgentBindingForRestore(surfaceID: surfaceID).resumeBinding?.autoResume == false)
         var persistent = running
         persistent.remotePTYSessionID = "remote-pty"
-        #expect(persistent.reconcilingConfirmedAgentBinding(surfaceID: surfaceID).resumeBinding?.autoResume == false)
+        #expect(persistent.reconcilingAgentBindingForRestore(surfaceID: surfaceID).resumeBinding?.autoResume == false)
     }
 
     @Test func bindingOnlyExitedAgentResumesButUnboundHistoryDoesNot() {
@@ -233,5 +237,22 @@ import Testing
         #expect(terminal.recoveryPlan(surfaceID: panelID).action == .resumeAgent(
             TerminalRecoveryAgentIdentity(kind: "codex", sessionID: "completed-id")!
         ))
+
+        let dock = DockSplitStore(
+            workspaceId: UUID(), baseDirectoryProvider: { "/tmp" },
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { dock.closeAllPanels() }
+        let mapping = dock.restoreSessionSnapshot(SessionSplitContainerSnapshot(
+            focusedPanelId: panelID, layout: snapshot.layout, panels: snapshot.panels
+        ))
+        let dockID = try #require(mapping[panelID])
+        dock.restoredAgentLifecycle.setResumeState(.completedAgentExit, panelId: dockID)
+        let dockSnapshot = dock.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:])
+        )
+        #expect(dockSnapshot.panels.first?.terminal?.agent?.sessionId == "completed-id")
     }
 }

@@ -117,11 +117,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         XCTAssertNil(restoredWithoutAutoResume.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent)
     }
 
-    /// When autoResumeAgentSessions is enabled but the agent was already exited at snapshot time
-    /// (wasAgentRunning == false), cmux must NOT inject the resume command on restore.
-    /// The session ID must still be preserved for manual resume.
+    /// A bound session restores even when its old process exited before the snapshot.
     @MainActor
-    func testAgentExitedBeforeSnapshotDoesNotAutoResumeEvenWhenSettingEnabled() throws {
+    func testAgentExitedBeforeSnapshotResumesWhenSettingEnabled() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
@@ -148,8 +146,8 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
 
-            XCTAssertFalse(restoredInput.hasInitialInput,
-                           "must not auto-resume when agent was already exited at snapshot time")
+            XCTAssertTrue(restoredInput.hasInitialInput,
+                          "the saved session binding must resume after its process exits")
             XCTAssertNil(restoredPanel.surface.debugInitialCommand())
             XCTAssertEqual(
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId,
@@ -205,7 +203,10 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             )
 
             restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
-            XCTAssertNil(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent)
+            XCTAssertEqual(
+                restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId,
+                "codex-running-at-snapshot-session"
+            )
         }
     }
 
@@ -346,7 +347,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testUnknownAgentShellStateDoesNotAutoResume() throws {
+    func testUnknownAgentShellStateRetainsBoundSessionRestore() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
@@ -370,7 +371,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
 
-            XCTAssertFalse(restoredInput.hasInitialInput)
+            XCTAssertTrue(restoredInput.hasInitialInput)
             XCTAssertEqual(snapshot.panels.first?.terminal?.recovery?.state, .unknown)
             XCTAssertEqual(
                 snapshot.panels.first?.terminal?.recovery?.lastKnownAgent?.sessionID,
@@ -380,7 +381,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testAgentHookBindingExitedBeforeSnapshotDoesNotAutoResumeEvenWhenTrusted() throws {
+    func testAgentHookBindingExitedBeforeSnapshotResumesWhenTrusted() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
@@ -419,8 +420,8 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let input = restoredPanel.surface.debugInitialInputMetadata()
 
-            XCTAssertFalse(input.hasInitialInput)
-            XCTAssertEqual(input.byteCount, 0)
+            XCTAssertTrue(input.hasInitialInput)
+            XCTAssertGreaterThan(input.byteCount, 0)
             XCTAssertNil(restoredPanel.surface.debugInitialCommand())
             XCTAssertEqual(
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId,
@@ -548,7 +549,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testAgentHookResumeBindingBecomesManualAfterStartupCommandCompletes() throws {
+    func testAgentHookSessionBindingSurvivesStartupCommandCompletion() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
         let previous = defaults.object(forKey: key)
@@ -611,10 +612,24 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
         let completedSnapshot = restored.sessionSnapshot(includeScrollback: false)
-        XCTAssertNil(completedSnapshot.panels.first?.terminal?.agent)
+        XCTAssertEqual(
+            completedSnapshot.panels.first?.terminal?.agent?.sessionId,
+            "codex-binding-auto-resume-session"
+        )
         let retainedBinding = try XCTUnwrap(completedSnapshot.panels.first?.terminal?.resumeBinding)
         XCTAssertEqual(retainedBinding.checkpointId, "codex-binding-auto-resume-session")
         XCTAssertFalse(retainedBinding.allowsAutomaticResume)
+
+        let reopened = Workspace(restorableAgentIndexProvider: { .empty })
+        defer { reopened.teardownAllPanels() }
+        reopened.restoreSessionSnapshot(completedSnapshot)
+        let reopenedPanelID = try XCTUnwrap(reopened.focusedPanelId)
+        let reopenedPanel = try XCTUnwrap(reopened.terminalPanel(for: reopenedPanelID))
+        XCTAssertTrue(reopenedPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        try assertAgentAutoResumeUsesRestoreVerb(
+            reopenedPanel,
+            sessionID: "codex-binding-auto-resume-session"
+        )
     }
 
     @MainActor

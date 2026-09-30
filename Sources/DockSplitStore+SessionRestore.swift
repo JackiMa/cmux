@@ -236,7 +236,7 @@ extension DockSplitStore {
             workspaceId: workspaceId
         )
         guard let savedTerminalSnapshot = snapshot.terminal else { return nil }
-        let terminalSnapshot = savedTerminalSnapshot.reconcilingConfirmedAgentBinding(surfaceID: snapshot.id)
+        let terminalSnapshot = savedTerminalSnapshot.reconcilingAgentBindingForRestore(surfaceID: snapshot.id)
         let policy = Workspace.makeSessionRestorePolicyService()
         let localTmuxStartCommand = policy.localTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
         let restorableAgent = localTmuxStartCommand == nil
@@ -287,14 +287,14 @@ extension DockSplitStore {
         recoveryObservationsByPanelId[snapshot.id] = recoveryObservation
         let recoveryPlan = terminalSnapshot.recoveryPlan(
             surfaceID: snapshot.id,
-            claimedOwnerSurfaceID: recoveryObservation.agent.flatMap { recoveryPlannedAgentOwners[$0] }
+            claimedOwnerSurfaceID: terminalSnapshot.boundAgentIdentityForRestore.flatMap { recoveryPlannedAgentOwners[$0] }
         )
         let shouldAutoResumeAgent: Bool = {
             guard AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults),
                   case .resumeAgent = recoveryPlan.action else { return false }
             return true
         }()
-        if shouldAutoResumeAgent, let agent = recoveryObservation.agent {
+        if shouldAutoResumeAgent, let agent = terminalSnapshot.boundAgentIdentityForRestore {
             recoveryPlannedAgentOwners[agent] = snapshot.id
         }
         let shouldCheckAgentOwnership = shouldAutoResumeAgent &&

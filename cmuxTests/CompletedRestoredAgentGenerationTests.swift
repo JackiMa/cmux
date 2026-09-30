@@ -90,7 +90,7 @@ struct CompletedRestoredAgentGenerationTests {
             restorableAgentIndex: fixture.index
         )
 
-        #expect(snapshot.panels.first?.terminal?.agent == nil)
+        #expect(snapshot.panels.first?.terminal?.agent?.sessionId == sessionId)
         #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit)
         #expect(workspace.restoredAgentSnapshotsByPanelId[panelId]?.sessionId == sessionId)
         #expect(!workspace.allowsAgentContinuation(forPanelId: panelId))
@@ -263,7 +263,7 @@ struct CompletedRestoredAgentGenerationTests {
             restorableAgentIndex: fixture.index
         )
 
-        #expect(snapshot.panels.first?.terminal?.agent == nil)
+        #expect(snapshot.panels.first?.terminal?.agent?.sessionId == completedSessionId)
         #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit)
         #expect(workspace.restoredAgentSnapshotsByPanelId[panelId]?.sessionId == completedSessionId)
         #expect(!workspace.allowsAgentContinuation(forPanelId: panelId))
