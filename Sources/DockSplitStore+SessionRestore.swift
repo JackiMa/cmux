@@ -297,7 +297,10 @@ extension DockSplitStore {
         if shouldAutoResumeAgent, let agent = terminalSnapshot.boundAgentIdentityForRestore {
             recoveryPlannedAgentOwners[agent] = snapshot.id
         }
-        let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
+        let restoresBoundLocalAgent = shouldAutoResumeAgent &&
+            terminalSnapshot.hasLocalBoundAgentBindingForRestore &&
+            terminalSnapshot.isRemoteTerminal != true && hibernation == nil
+        let shouldCheckAgentOwnership = !restoresBoundLocalAgent && shouldAutoResumeAgent &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
         let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
         let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex == nil
@@ -362,7 +365,10 @@ extension DockSplitStore {
             stablePanelHasLiveProcess
             ? nil
             : approvedResumeBinding.flatMap {
-                policy.surfaceResumeStartupLaunch(
+                if restoresBoundLocalAgent {
+                    return $0.boundAgentStartupLaunch()
+                }
+                return policy.surfaceResumeStartupLaunch(
                     forApprovedBinding: $0
                 )
             }

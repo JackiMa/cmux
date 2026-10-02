@@ -179,6 +179,17 @@ extension SessionTerminalPanelSnapshot {
         return savedBinding ?? savedAgent
     }
 
+    /// A saved local binding supplies its own exact launch target. Restoring
+    /// it does not require a process census of the previous execution.
+    var hasLocalBoundAgentBindingForRestore: Bool {
+        guard let boundAgent = boundAgentIdentityForRestore,
+              let binding = resumeBinding,
+              binding.isAgentHookBinding, binding.launchFlavor == .local else {
+            return false
+        }
+        return TerminalRecoveryAgentIdentity(kind: binding.kind, sessionID: binding.checkpointId) == boundAgent
+    }
+
     func recoveryPlan(surfaceID: UUID? = nil, claimedOwnerSurfaceID: UUID? = nil) -> TerminalRecoveryPlan {
         var observation = recovery ?? .migrated(from: self, surfaceID: surfaceID)
         let savedAgent = TerminalRecoveryAgentIdentity(kind: agent?.kind.rawValue, sessionID: agent?.sessionId)
@@ -218,5 +229,17 @@ extension SessionTerminalPanelSnapshot {
             surfaceID: surfaceID,
             claimedOwnerSurfaceID: claimedOwnerSurfaceID
         )
+    }
+}
+
+extension SurfaceResumeBindingSnapshot {
+    /// Runs an approved saved binding through the managed wrapper, without
+    /// asking the CLI to infer process ownership again during app restore.
+    func boundAgentStartupLaunch() -> Workspace.SurfaceResumeStartupLaunch? {
+        guard isAgentHookBinding, launchFlavor == .local else { return nil }
+        return restoreStartupInput(
+            repairPortableAgentExecutable: true,
+            useLocalRestoreVerb: false
+        ).map(Workspace.SurfaceResumeStartupLaunch.input)
     }
 }

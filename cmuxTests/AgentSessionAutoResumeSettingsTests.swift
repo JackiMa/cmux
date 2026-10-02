@@ -595,10 +595,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let input = restoredPanel.surface.debugInitialInputMetadata()
         XCTAssertTrue(input.hasInitialInput)
         XCTAssertGreaterThan(input.byteCount, 0)
-        try assertAgentAutoResumeUsesRestoreVerb(
-            restoredPanel,
-            sessionID: "codex-binding-auto-resume-session"
-        )
+        let restoredPanelInput = try XCTUnwrap(restoredPanel.surface.initialInput)
+        XCTAssertTrue(restoredPanelInput.contains("codex resume codex-binding-auto-resume-session"))
+        XCTAssertFalse(restoredPanelInput.contains(" cmux restore "))
         XCTAssertEqual(
             restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
             .awaitingAutoResumeCommand
@@ -626,10 +625,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let reopenedPanelID = try XCTUnwrap(reopened.focusedPanelId)
         let reopenedPanel = try XCTUnwrap(reopened.terminalPanel(for: reopenedPanelID))
         XCTAssertTrue(reopenedPanel.surface.debugInitialInputMetadata().hasInitialInput)
-        try assertAgentAutoResumeUsesRestoreVerb(
-            reopenedPanel,
-            sessionID: "codex-binding-auto-resume-session"
-        )
+        let reopenedPanelInput = try XCTUnwrap(reopenedPanel.surface.initialInput)
+        XCTAssertTrue(reopenedPanelInput.contains("codex resume codex-binding-auto-resume-session"))
+        XCTAssertFalse(reopenedPanelInput.contains(" cmux restore "))
     }
 
     @MainActor

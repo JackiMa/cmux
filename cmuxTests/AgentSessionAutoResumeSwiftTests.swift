@@ -57,8 +57,9 @@ struct AgentSessionAutoResumeSwiftTests {
         let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
         let restoredTabID = try #require(restored.surfaceIdFromPanelId(restoredPanelID))
-        let bootstrapInput =
-            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(checkpointID)\n"
+        let bootstrapInput = try #require(restoredPanel.surface.debugInitialInputForTesting())
+        #expect(bootstrapInput.contains("CMUX_AGENT_RESTORE_LAUNCH=\(kind):\(checkpointID)"))
+        #expect(!bootstrapInput.contains(" cmux restore "))
         let bootstrapTitle = bootstrapInput.trimmingCharacters(in: .whitespacesAndNewlines)
 
         #expect(restoredPanel.surface.debugInitialInputForTesting() == bootstrapInput)
@@ -1853,7 +1854,16 @@ struct AgentSessionAutoResumeSwiftTests {
     ) throws {
         #expect(panel.surface.debugInitialCommand() == nil)
         let input = try #require(panel.surface.debugInitialInputForTesting())
-        #expect(input == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(sessionID)\n")
+        if let binding = workspace.surfaceResumeBindingsByPanelId[panel.id],
+           binding.isAgentHookBinding, binding.launchFlavor == .local {
+            #expect(input == binding.restoreStartupInput(
+                repairPortableAgentExecutable: true, useLocalRestoreVerb: false
+            ))
+            #expect(input.contains(sessionID))
+            #expect(!input.contains(" cmux restore "))
+        } else {
+            #expect(input == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(sessionID)\n")
+        }
         let command: String
         if let agent = workspace.restoredAgentSnapshotForTesting(panelId: panel.id) {
             #expect(agent.kind.rawValue == kind)

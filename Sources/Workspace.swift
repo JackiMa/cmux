@@ -1683,7 +1683,10 @@ extension Workspace {
             // top of that binding.
             let restorableAgentCanAutoResume = restorableAgent != nil &&
                 (resumeBinding == nil || resumeBinding?.isAgentHookBinding == true)
-            let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
+            let restoresBoundLocalAgent = shouldAutoResumeAgent &&
+                snapshot.terminal?.hasLocalBoundAgentBindingForRestore == true &&
+                !restoresRemoteWorkspaceTerminalSnapshot && restoredHibernation == nil
+            let shouldCheckAgentOwnership = !restoresBoundLocalAgent && shouldAutoResumeAgent &&
                 (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
             let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
             let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex == nil
@@ -1783,9 +1786,13 @@ extension Workspace {
                    !stablePanelHasLiveProcess,
                    canAttemptLocalBindingResume,
                    let effectiveResumeBindingForStartup {
-                    sessionRestorePolicy.surfaceResumeStartupLaunch(
-                        forApprovedBinding: effectiveResumeBindingForStartup
-                    )
+                    if restoresBoundLocalAgent {
+                        effectiveResumeBindingForStartup.boundAgentStartupLaunch()
+                    } else {
+                        sessionRestorePolicy.surfaceResumeStartupLaunch(
+                            forApprovedBinding: effectiveResumeBindingForStartup
+                        )
+                    }
                 } else {
                     nil
                 }

@@ -263,4 +263,15 @@ import Testing
         )
         #expect(dockSnapshot.panels.first?.terminal?.agent?.sessionId == "completed-id")
     }
+    @Test func approvedPromptBindingStartsWithoutAutomaticResumeFlag() throws {
+        // The restore policy already accepted the user's prompt response.
+        let approvedBinding = SurfaceResumeBindingSnapshot(
+            kind: "codex", command: "/usr/bin/true", checkpointId: "approved-session",
+            source: "agent-hook", autoResume: false, approvalPolicy: .prompt
+        )
+        let launch = try #require(approvedBinding.boundAgentStartupLaunch())
+        #expect(launch.initialInput.contains("/usr/bin/true") == true)
+        #expect(launch.initialInput.contains("cmux restore") == false)
+    }
+
 }
