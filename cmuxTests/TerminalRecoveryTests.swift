@@ -144,9 +144,13 @@ import Testing
         defer { restored.teardownAllPanels() }
         let mapping = restored.restoreSessionSnapshot(snapshot, startupRestoreCommitOwner: .tabManagerTopology)
         let restoredID = try #require(mapping[panelID])
-        let pending = try #require(restored.deferredAgentResumeRestoresByPanelId[restoredID])
-        #expect(pending.resumeBinding?.autoResume == true)
-        #expect(pending.resumeBinding?.checkpointId == identity)
+        #expect(restored.deferredAgentResumeRestoresByPanelId[restoredID] == nil)
+        let terminal = try #require(restored.panels[restoredID] as? TerminalPanel)
+        #expect(terminal.surface.initialInput?.contains("/usr/bin/true") == true)
+        #expect(terminal.surface.initialInput?.contains("cmux restore") == false)
+        restored.terminalStartupRestoreCoordinator.commitPendingRestores()
+        #expect(restored.restoredAgentResumeStatesByPanelId[restoredID] == .awaitingAutoResumeCommand)
+        #expect(restored.restoredAgentLifecycle.startupInput(panelId: restoredID)?.contains("/usr/bin/true") == true)
         #expect(restored.surfaceResumeBindingsByPanelId[restoredID]?.autoResume == true)
 
         let dock = DockSplitStore(
@@ -158,7 +162,11 @@ import Testing
             focusedPanelId: panelID, layout: snapshot.layout, panels: snapshot.panels
         ))
         let dockID = try #require(dockMapping[panelID])
-        #expect(dock.deferredAgentResumeRestoresByPanelId[dockID]?.resumeBinding?.autoResume == true)
+        #expect(dock.deferredAgentResumeRestoresByPanelId[dockID] == nil)
+        let dockTerminal = try #require(dock.panels[dockID] as? TerminalPanel)
+        #expect(dockTerminal.surface.initialInput?.contains("/usr/bin/true") == true)
+        #expect(dockTerminal.surface.initialInput?.contains("cmux restore") == false)
+        #expect(dock.restoredAgentLifecycle.resumeStatesByPanelId[dockID] == .awaitingAutoResumeCommand)
         #expect(dock.surfaceResumeBindingsByPanelId[dockID]?.checkpointId == identity)
     }
 
