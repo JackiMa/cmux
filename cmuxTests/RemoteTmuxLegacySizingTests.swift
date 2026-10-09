@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 import Testing
 
@@ -21,7 +22,7 @@ struct RemoteTmuxLegacySizingTests {
     }
 
     @Test(.enabled(if: executable != nil), .timeLimit(.minutes(1)))
-    func legacyClientFitsAlongsideWiderPeerAcrossResizeReplayAndNewWindows() async throws {
+    func latestInteractionOwnsSizeWithoutBackgroundReplayStealingIt() async throws {
         let executable = try #require(Self.executable)
         let prefix = ["-L", "cmux-sizing-\(UUID().uuidString.lowercased())", "-f", "/dev/null"]
         func tmux(_ arguments: [String]) throws -> String {
@@ -39,8 +40,11 @@ struct RemoteTmuxLegacySizingTests {
             try #require(process.terminationStatus == 0, "\(arguments): \(result)")
             return result.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        func width(_ window: Int) throws -> String {
+            try tmux(["display-message", "-p", "-t", "@\(window)", "#{window_width}"])
+        }
 
-        print("Legacy sizing fixture: \(try tmux(["-V"]))")
+        print("Latest interaction sizing fixture: \(try tmux(["-V"]))")
         _ = try tmux(["new-session", "-d", "-s", "sizing", "-x", "188", "-y", "50", "sleep 90"])
         defer { _ = try? tmux(["kill-server"]) }
         _ = try tmux(["set-option", "-g", "window-size", "latest"])
@@ -55,54 +59,48 @@ struct RemoteTmuxLegacySizingTests {
         peer.connection.setClientSize(columns: 188, rows: 50)
         await peer.connection.clientSizeDebounceTask?.value
         try await peer.command("select-window -t @\(first)")
-        try #require(try tmux(["display-message", "-p", "-t", "@\(first)", "#{window_width}"]) == "188")
+        try await peer.command("refresh-client -C 188x50")
+        try #require(try width(first) == "188")
 
-        // Exercise the unsupported-capability transition with pending claims
-        // for both a visible and a hidden window. Local newer binaries can run
-        // this same regression by explicitly taking the old-server path.
-        client.connection.setWindowSize(windowId: second, columns: 139, rows: 36)
+        client.connection.setWindowSize(windowId: second, columns: 99, rows: 36)
         client.connection.setWindowSize(windowId: first, columns: 139, rows: 36)
         client.connection.notePerWindowSizeRejected()
         await client.connection.clientSizeDebounceTask?.value
         try await client.fence()
         #expect(client.connection.windowSizeDebounceTasks.isEmpty)
-        for id in [first, second] {
-            #expect(try tmux(["display-message", "-p", "-t", "@\(id)", "#{window_width}"]) == "139")
-        }
+        // Attach, hidden geometry and capability fallback are not user actions.
+        #expect(try width(first) == "188")
+        #expect(try tmux(["show-options", "-w", "-v", "-t", "@\(first)", "window-size"]) == "latest")
 
-        for columns in [99, 159, 139] {
-            client.connection.setWindowSize(windowId: first, columns: columns, rows: 36)
-            await client.connection.clientSizeDebounceTask?.value
+        let firstPane = try #require(Int(try tmux(["display-message", "-p", "-t", "@\(first)", "#{pane_id}"]).dropFirst()))
+        let secondPane = try #require(Int(try tmux(["display-message", "-p", "-t", "@\(second)", "#{pane_id}"]).dropFirst()))
+        for (pane, window, columns) in [(firstPane, first, 139), (secondPane, second, 99), (firstPane, first, 139)] {
+            #expect(client.connection.sendKeys(paneId: pane, data: Data("x".utf8)))
             try await client.fence()
-            #expect(try tmux(["display-message", "-p", "-t", "@\(first)", "#{window_width}"]) == String(columns))
-            #expect(try tmux(["display-message", "-p", "-t", "sizing", "#{window_id}"]) == "@\(first)")
+            #expect(try width(window) == String(columns))
+            #expect(try tmux(["display-message", "-p", "-t", "sizing", "#{window_id}"]) == "@\(window)")
         }
 
-        // Reconnect replay must repair the policy as well as the dimensions.
-        _ = try tmux(["set-option", "-w", "-t", "@\(first)", "window-size", "latest"])
-        client.connection.replayRecordedSizeClaims()
+        // A wide peer must reclaim the full grid even while cmux stays attached.
+        try await peer.command("select-window -t @\(first)")
+        try await peer.command("refresh-client -C 188x50")
         try await client.fence()
-        #expect(try tmux(["display-message", "-p", "-t", "@\(first)", "#{window_width}"]) == "139")
-
-        let added = try #require(Int(try tmux(["new-window", "-d", "-P", "-F", "#{window_id}", "-t", "sizing", "sleep 90"]).dropFirst()))
-        client.connection.setWindowSize(windowId: added, columns: 139, rows: 36)
+        #expect(try width(first) == "188")
+        client.connection.replayRecordedSizeClaims()
+        client.connection.setWindowSize(windowId: first, columns: 120, rows: 36)
         await client.connection.clientSizeDebounceTask?.value
         try await client.fence()
-        #expect(try tmux(["display-message", "-p", "-t", "@\(added)", "#{window_width}"]) == "139")
-        #expect(try tmux(["show-options", "-g", "-v", "window-size"]) == "latest")
+        #expect(try width(first) == "188", "Background replay/geometry must not reclaim ownership")
+        #expect(client.connection.sendKey(paneId: firstPane, key: RemoteTmuxKeyName(rawName: "Enter")!))
+        try await client.fence()
+        #expect(try width(first) == "120")
 
-        // A smaller co-viewer still fits. Closing it automatically releases the
-        // bound: no manual resize pin may strand the remaining client at 139.
-        peer.connection.setClientSize(columns: 90, rows: 40)
-        await peer.connection.clientSizeDebounceTask?.value
-        try await peer.fence()
-        #expect(try tmux(["display-message", "-p", "-t", "@\(first)", "#{window_width}"]) == "90")
-        peer.connection.setClientSize(columns: 188, rows: 50)
-        await peer.connection.clientSizeDebounceTask?.value
-        try await peer.fence()
+        try await peer.command("select-window -t @\(first)")
+        try await peer.command("refresh-client -C 188x50")
         try await client.command("detach-client")
         try await peer.fence()
-        #expect(try tmux(["display-message", "-p", "-t", "@\(first)", "#{window_width}"]) == "188")
+        #expect(try width(first) == "188")
+        #expect(try tmux(["show-options", "-g", "-v", "window-size"]) == "latest")
     }
 
     @MainActor
