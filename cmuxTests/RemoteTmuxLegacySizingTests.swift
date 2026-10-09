@@ -156,6 +156,35 @@ struct RemoteTmuxLegacySizingTests {
         try await client.fence()
         #expect(try width(first) == "188")
 
+        // The workspace resolves projected panes through its SESSION owner.
+        // Focus/text/key control APIs must claim sizing on that production route.
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: client.connection.host, sessionName: "sizing",
+            connection: client.connection, tabManager: manager, workspace: workspace
+        )
+        client.connection.setWindowSize(windowId: first, columns: 120, rows: 36)
+        client.connection.setWindowSize(windowId: second, columns: 99, rows: 36)
+        try await peer.command("select-window -t @\(first)")
+        try await peer.command("refresh-client -C 188x50")
+        #expect(sessionMirror.controlFocus(pane: secondPane, completion: { _ in }))
+        try await client.fence()
+        #expect(try width(second) == "99", "Session-owned focus must select and resize the target window")
+        #expect(try tmux(["display-message", "-p", "-t", "sizing", "#{window_id}"]) == "@\(second)")
+        #expect(sessionMirror.sendInput(toPane: firstPane, text: "x"))
+        try await client.fence()
+        #expect(try width(first) == "120", "Explicit control API text must claim sizing")
+        #expect(sessionMirror.sendKey(toPane: secondPane, name: "Enter") == .sent)
+        try await client.fence()
+        #expect(try width(second) == "99", "Explicit control API keys must claim sizing")
+        sessionMirror.detachObserver()
+        client.connection.setWindowSize(windowId: first, columns: 120, rows: 36)
+        client.connection.setWindowSize(windowId: second, columns: 99, rows: 36)
+        try await peer.command("select-window -t @\(first)")
+        try await peer.command("refresh-client -C 188x50")
+
         // Reconnect creates a new control client; replay must remain passive.
         let replacement = try Client(executable: executable, arguments: prefix)
         defer { replacement.stop() }
