@@ -55,16 +55,21 @@ the remote port. A disconnected SSH master must be reconnected first.
 
 ## Cropped remote terminal width
 
-On tmux 3.2a, a second, wider client can keep a window wider than the local
-viewport. The old fallback sent a session-wide size but left tmux's `latest`
-window policy in control. The app now switches mirrored windows to tmux's
-automatic `smallest` policy when per-window client sizing is unsupported.
-Resizing, new windows, and reconnect replay use the same sizing path. Multiple
-viewers use the smallest dimensions, so a larger viewer can have unused space.
-The policy is local to each mirrored tmux window and remains until that window
-closes or is reconfigured; it does not edit the global default or `tmux.conf`.
+On tmux 3.2a, the last interacting client determines the shared window size.
+Focus or input in cmux applies the visible panel's grid; ordinary terminal
+input, resize, or reported focus-in applies that terminal's grid. Background
+cmux clients use `ignore-size`, and automatic terminal replies or reconnect
+replay do not take ownership. The running server enables `focus-events` so
+supported native terminals can hand sizing back on focus without typing.
+
+This replaces the old persistent `smallest` compatibility policy on mirrored
+windows. It keeps the global `window-size` default and configuration file
+unchanged. Switching cmux tabs also selects the remote session's current
+window. Simultaneous viewers share one grid; a background viewer can show
+margins or a clipped viewport until it becomes active. Newer tmux servers
+retain their existing per-window claims.
 See [the sizing design](remote-tmux-sizing-design.md#older-tmux-servers-without-per-window-claims)
-for the regression harness and compatibility limit.
+for the command order, regression harness, and compatibility limits.
 
 ## Initialize and build
 

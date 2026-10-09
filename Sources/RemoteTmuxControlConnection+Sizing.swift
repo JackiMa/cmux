@@ -30,6 +30,10 @@ extension RemoteTmuxControlConnection {
     func removeWindowSizeClaim(windowId: Int) {
         windowClaimParityRearmsSpent.removeValue(forKey: windowId)
         legacyWindowSizingConfigured.remove(windowId)
+        if interactiveSizingWindowId == windowId {
+            interactiveSizingWindowId = nil
+            interactiveSizingOwnerId = nil
+        }
         guard let removed = lastWindowSizes.removeValue(forKey: windowId) else {
             sentWindowSizes.removeValue(forKey: windowId)
             return
@@ -48,6 +52,10 @@ extension RemoteTmuxControlConnection {
         lastWindowSizes = lastWindowSizes.filter { liveWindowIDs.contains($0.key) }
         sentWindowSizes = sentWindowSizes.filter { liveWindowIDs.contains($0.key) }
         legacyWindowSizingConfigured.formIntersection(liveWindowIDs)
+        if let id = interactiveSizingWindowId, !liveWindowIDs.contains(id) {
+            interactiveSizingWindowId = nil
+            interactiveSizingOwnerId = nil
+        }
         windowClaimParityRearmsSpent = windowClaimParityRearmsSpent.filter { liveWindowIDs.contains($0.key) }
         maximumWindowClaimColumns = lastWindowSizes.values.reduce(0) { max($0, $1.0) }
         maximumWindowClaimRows = lastWindowSizes.values.reduce(0) { max($0, $1.1) }
@@ -142,8 +150,8 @@ extension RemoteTmuxControlConnection {
     ///
     /// If the server rejects the `@id:` form (including tmux 3.2a), the
     /// connection uses a session-wide client size and configures mirrored
-    /// windows to follow the smallest client. A session-wide claim alone cannot
-    /// constrain a wider peer under `window-size latest`.
+    /// windows to follow the last interacting client. Geometry records dimensions;
+    /// explicit focus/input transfers ownership through `activateWindowSizing`.
     func setWindowSize(windowId: Int, columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }
         // Record desired state before dedup. If a different debounced size is
@@ -153,7 +161,9 @@ extension RemoteTmuxControlConnection {
         lastSizeRequestWindowId = windowId
         guard supportsPerWindowSize else {
             configureLegacyWindowSizing(windowId: windowId)
-            setClientSize(columns: columns, rows: rows)
+            if interactiveSizingWindowId == nil || interactiveSizingWindowId == windowId {
+                setClientSize(columns: columns, rows: rows)
+            }
             return
         }
         // The CLIENT's own size must cover the largest window claim: tmux
@@ -298,7 +308,9 @@ extension RemoteTmuxControlConnection {
         for task in perWindowRedrawKickTasks.values { task.cancel() }
         perWindowRedrawKickTasks.removeAll()
         sentWindowSizes.removeAll()
-        record("remote.tmux.perWindowSize unsupported; using smallest windows with session-wide client size")
+        _ = send("set-option -g focus-events on")
+        _ = send("refresh-client -f ignore-size")
+        record("remote.tmux.perWindowSize unsupported; using latest interaction with session-wide client size")
         for windowId in lastWindowSizes.keys.sorted() {
             configureLegacyWindowSizing(windowId: windowId)
         }
@@ -309,31 +321,72 @@ extension RemoteTmuxControlConnection {
         if let replay {
             setClientSize(columns: replay.0, rows: replay.1)
         }
+        if let windowId = interactiveSizingWindowId {
+            _ = activateWindowSizing(windowId: windowId, ownerId: interactiveSizingOwnerId)
+        }
     }
 
-    /// Old tmux cannot cap a window per control client. Its default `latest`
-    /// policy may keep following a wider terminal even after our -C succeeds;
-    /// rendering that authoritative grid then clips the right side locally.
-    /// Use tmux's automatic smallest-client policy for each mirrored window.
-    /// This is window-local, leaves the global default alone, and grows again
-    /// when a smaller client detaches (unlike a manual `resize-window` pin).
+    /// Removes the previous compatibility policy. Latest keeps a background
+    /// cmux connection from permanently limiting a native terminal's grid.
     func configureLegacyWindowSizing(windowId: Int) {
         guard !supportsPerWindowSize,
               connectionState == .connected,
               !legacyWindowSizingConfigured.contains(windowId) else { return }
         guard sendTracked(
-            "set-option -w -t @\(windowId) window-size smallest",
+            "set-option -w -t @\(windowId) window-size latest",
             completion: { [weak self] succeeded in
                 if !succeeded { self?.legacyWindowSizingConfigured.remove(windowId) }
             }
         ) else { return }
         legacyWindowSizingConfigured.insert(windowId)
-        // tmux 3.2 defers an option-driven resize of a hidden/new window.
-        // Even an unchanged -C commits it immediately, so the following client
-        // size apply must not dedup against the pre-policy send.
         lastSentClientSize = nil
     }
 
+    /// Only explicit user focus/input calls this. In tmux 3.2a neither
+    /// refresh-client -C nor send-keys updates w->latest. select-window does,
+    /// then the final refresh commits its otherwise deferred resize immediately.
+    /// Native terminal input/resize can subsequently take ownership naturally.
+    @discardableResult
+    func activateWindowSizing(windowId: Int, ownerId: UUID? = nil) -> Bool {
+        interactiveSizingWindowId = windowId
+        interactiveSizingOwnerId = ownerId
+        guard !supportsPerWindowSize else { return true }
+        guard let size = lastWindowSizes[windowId] else { return true }
+        guard connectionState == .connected else { return false }
+        let sessionTarget = sessionId.map { "'$\($0)'" }
+            ?? RemoteTmuxHost.controlModeLineSafeName(sessionName)
+                .map { RemoteTmuxHost.shellSingleQuoted("=" + $0) }
+        guard let sessionTarget else { return false }
+        clientSizeDebounceTask?.cancel()
+        clientSizeDebounceTask = nil
+        let commands = [
+            "refresh-client -f '!ignore-size'",
+            "set-option -w -t @\(windowId) window-size latest",
+            "select-window -t \(sessionTarget):@\(windowId)",
+            "refresh-client -C \(size.0)x\(size.1)"
+        ]
+        guard sendBatchInternal(commands, kinds: commands.map { _ in .other }) else { return false }
+        lastClientSize = (size.0, size.1)
+        lastSentClientSize = lastClientSize
+        scheduleAttachRedrawKickIfNeeded()
+        return true
+    }
+
+    func deactivateWindowSizing(windowId: Int, ownerId: UUID? = nil) {
+        guard interactiveSizingWindowId == windowId,
+              ownerId == nil || ownerId == interactiveSizingOwnerId else { return }
+        interactiveSizingWindowId = nil
+        interactiveSizingOwnerId = nil
+        if !supportsPerWindowSize { _ = send("refresh-client -f ignore-size") }
+    }
+
+    func activatePaneSizing(paneId: Int) -> Bool {
+        guard !supportsPerWindowSize else { return true }
+        guard let windowId = publishedWindowIdByPane[paneId]
+            ?? windowsByID.values.first(where: { $0.paneIDsInOrder.contains(paneId) })?.id
+        else { return false }
+        return activateWindowSizing(windowId: windowId)
+    }
 
     /// One-shot, attach-only: force a real SIGWINCH when the attach size push was a
     /// no-op, so a running TUI re-renders the current frame at the current width.

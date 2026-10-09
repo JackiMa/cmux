@@ -117,6 +117,7 @@ extension RemoteTmuxWindowMirror {
         completion: @escaping (Bool) -> Void
     ) -> Bool {
         guard let connection else { return false }
+        _ = connection.activateWindowSizing(windowId: windowId, ownerId: panelId)
         return requestControlFocus(
             pane: tmuxPaneID,
             sendTracked: { command, trackedCompletion in

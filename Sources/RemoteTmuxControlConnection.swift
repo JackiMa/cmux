@@ -195,9 +195,11 @@ final class RemoteTmuxControlConnection {
     var windowSizeDebounceTasks: [Int: Task<Void, Never>] = [:]
     /// Whether the server accepts per-window `refresh-client -C` sizing.
     var supportsPerWindowSize = true
-    /// Windows configured to honor the smallest live client on servers without
-    /// per-window size claims. Replayed after reconnect or a peer's detach.
+    /// Mirrored legacy windows migrated from the old smallest policy to latest.
     var legacyWindowSizingConfigured: Set<Int> = []
+    /// Last window explicitly activated by the user, never by a layout echo.
+    var interactiveSizingWindowId: Int?
+    var interactiveSizingOwnerId: UUID?
     /// Instant of the most recent sizing write on this connection — kept for
     /// diagnostics (how stale is the last size request).
     var lastSizingSendAt: ContinuousClock.Instant?

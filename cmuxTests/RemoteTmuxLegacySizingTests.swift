@@ -1,4 +1,7 @@
 import CmuxRemoteSession
+import AppKit
+import CmuxTerminal
+import GhosttyKit
 import Foundation
 import Testing
 
@@ -94,6 +97,91 @@ struct RemoteTmuxLegacySizingTests {
         #expect(client.connection.sendKey(paneId: firstPane, key: RemoteTmuxKeyName(rawName: "Enter")!))
         try await client.fence()
         #expect(try width(first) == "120")
+
+        // The production foreground gate transfers sizing without typing.
+        // A visible but unfocused mirror, or a hidden tab, cannot take it.
+        let layout = try #require(client.connection.windowsByID[first]?.layout)
+        var explicitInputCount = 0
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: first, panelId: UUID(), connection: client.connection,
+            layout: layout, makePanel: { _ in
+                let surface = TerminalSurface(tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT, configTemplate: nil, ioMode: .manualMirror)
+                surface.onExplicitInput = { explicitInputCount += 1 }
+                return TerminalPanel(workspaceId: UUID(), surface: surface)
+            }
+        )
+        defer { mirror.teardown() }
+        let window = KeyStatusTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        let probe = MirrorHostProbeView(frame: window.contentLayoutRect)
+        probe.mirror = mirror
+        window.contentView?.addSubview(probe)
+        mirror.hostProbeView = probe
+        mirror.isVisibleForSizing = true
+        mirror.isOuterFocusedForSizing = false
+        try await peer.command("select-window -t @\(first)")
+        try await peer.command("refresh-client -C 188x50")
+        mirror.activateSizingIfForeground(applicationIsActive: true)
+        try await client.fence()
+        #expect(try width(first) == "188")
+        // Cursor-position replies travel through manual I/O without activation.
+        #expect(client.connection.sendKeys(paneId: firstPane, data: Data("\u{1B}[1;1R".utf8), claimsSizing: false))
+        try await client.fence()
+        #expect(try width(first) == "188")
+        let panel = try #require(mirror.panel(forPane: firstPane))
+        panel.surface.didAcceptExplicitInput()
+        try await client.fence()
+        #expect(try width(first) == "120")
+        #expect(explicitInputCount == 1)
+        try await peer.command("select-window -t @\(first)")
+        try await peer.command("refresh-client -C 188x50")
+        mirror.isOuterFocusedForSizing = true
+        mirror.activateSizingIfForeground(applicationIsActive: true)
+        try await client.fence()
+        #expect(try width(first) == "120")
+        let otherOwner = UUID()
+        _ = client.connection.activateWindowSizing(windowId: first, ownerId: otherOwner)
+        client.connection.deactivateWindowSizing(windowId: first, ownerId: mirror.panelId)
+        try await client.fence()
+        #expect(try width(first) == "120", "An old view cannot release a new view's ownership")
+        client.connection.deactivateWindowSizing(windowId: first)
+        try await peer.command("select-window -t @\(first)")
+        try await peer.command("refresh-client -C 188x50")
+        mirror.isVisibleForSizing = false
+        mirror.activateSizingIfForeground(applicationIsActive: true)
+        try await client.fence()
+        #expect(try width(first) == "188")
+
+        // Reconnect creates a new control client; replay must remain passive.
+        let replacement = try Client(executable: executable, arguments: prefix)
+        defer { replacement.stop() }
+        try await replacement.ready()
+        replacement.connection.setWindowSize(windowId: first, columns: 110, rows: 36)
+        replacement.connection.notePerWindowSizeRejected()
+        replacement.connection.replayRecordedSizeClaims()
+        await replacement.connection.clientSizeDebounceTask?.value
+        try await replacement.fence()
+        #expect(try width(first) == "188")
+        #expect(replacement.connection.sendKeys(paneId: firstPane, data: Data("x".utf8)))
+        try await replacement.fence()
+        #expect(try width(first) == "110")
+        try await peer.command("select-window -t @\(first)")
+        try await peer.command("refresh-client -C 188x50")
+        try await replacement.command("detach-client")
+        try await client.fence()
+        #expect(try width(first) == "188")
+
+        // A window can close between a focus event and server execution. Each
+        // command keeps its own reply, so the next fence still completes.
+        _ = try tmux(["kill-window", "-t", "@\(second)"])
+        _ = client.connection.recordWindowSizeClaim(windowId: second, columns: 99, rows: 36)
+        #expect(client.connection.activateWindowSizing(windowId: second))
+        try await client.fence()
+        #expect(try width(first) == "188")
 
         try await peer.command("select-window -t @\(first)")
         try await peer.command("refresh-client -C 188x50")

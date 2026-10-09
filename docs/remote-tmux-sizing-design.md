@@ -38,7 +38,7 @@ Invariants:
 2. Every view is space-filling (answers a proposal with the proposal; hosting
    controllers publish no intrinsic size) so content exerts no outward pressure.
 3. tmux is the only grid authority.
-4. A size is sent only when it differs from what the server was last sent.
+4. Geometry sends are deduplicated; legacy user activation must also commit an unchanged size.
 5. Across a transport gap, trust a refetched snapshot, not the event stream.
 
 ## Older tmux servers without per-window claims
@@ -50,31 +50,43 @@ was accepted. A 139-column mirror can then receive a 188-column pane and clip
 its right side. Comparing the rendered grid only with tmux's assigned grid
 misses this case: both are 188 columns, wider than the viewport.
 
-On rejection, cancel pending per-window claims and configure each mirrored
-window with `set-option -w -t @id window-size smallest`. Continue sending the
-visible mirror's size through the session-wide client claim. Apply the policy
-to newly mirrored windows and replay it with the size claims on reconnect or
-peer detach. Failed policy sends remain retryable.
-Installing a policy invalidates the client-size send baseline: tmux 3.2a can
-defer a hidden window's resize after `set-option`, so another `refresh-client
--C` must commit it even when the client's dimensions did not change.
+The compatibility path uses `window-size latest` and explicit user activation.
+The previous `smallest` fallback prevented local crop but also held wider native
+terminals at a narrow grid. On capability rejection, migrate mirrored windows
+to `latest`, enable the server's `focus-events`, and mark background control
+clients `ignore-size`. The global `window-size` default and `tmux.conf` remain
+unchanged; focus reporting is enabled for the running server.
 
-This changes the runtime option on those tmux windows, not the global default
-or `tmux.conf`. The window-local policy remains until the window closes or is
-explicitly reconfigured. Remaining clients automatically determine the size
-after cmux detaches; there is no manual size pin to release. A narrower
-co-viewer can leave unused space in a larger cmux viewport. Old servers share
-one client size across the session; independent per-window claims still
-require a server that supports them.
+Focus, tab selection, accepted user input, and a foreground window resize hand
+sizing to cmux. The ordered command queue clears `ignore-size`, sets the target
+window to `latest`, selects that window on the attached session, then sends
+`refresh-client -C WxH`. Selection updates tmux 3.2a's latest-client pointer;
+the final refresh immediately commits the resize, including unchanged client
+dimensions. Ordinary terminal input, resize, or reported focus-in can then
+hand sizing back to a native client while cmux remains connected.
 
-`RemoteTmuxLegacySizingTests` runs the production control connection against
-an isolated tmux socket with two clients. It checks width changes, hidden/new
-windows, replay, unchanged remote selection, an unchanged global default, and
-automatic growth after the smaller client detaches. It uses an installed local
-tmux by default. `TEST_RUNNER_CMUX_LEGACY_SIZING_TMUX` can point to an executable
-that forwards tmux argv over SSH to an older binary; keep the generated `-L`
-argument intact so the fixture never shares a user's server. The regression
-was also run against tmux 3.2a.
+Background geometry, protocol replies, and reconnect or peer-detach replay
+never select a window. Manual I/O carries terminal replies as well as keyboard
+bytes, so activation uses the surface's accepted-explicit-input callback;
+forwarded bytes alone do not count as user activity. Losing foreground focus
+or hiding the selected mirror marks its control client `ignore-size`.
+
+Legacy clients share one size and one selected window across the session.
+Selecting a cmux tab therefore selects the same window in a native client of
+that session. A viewer that is not the last active client can temporarily show
+margins or a viewport smaller than the shared grid; returning to it transfers
+sizing. Native focus-only transfer requires a terminal that reports focus
+changes; keyboard input remains available when it does not. Newer servers keep
+the per-window claim behavior described below.
+
+`RemoteTmuxLegacySizingTests` runs the production connection against an isolated
+real tmux socket. It checks explicit input handoff, two window sizes, wide-peer
+recovery while cmux remains attached, background replay, and clean detach.
+`TEST_RUNNER_CMUX_LEGACY_SIZING_TMUX` can point to an SSH adapter for an older
+binary; preserve the generated `-L` argument so no user's server is shared.
+The separate `scripts/remote-tmux-latest-sizing-native-probe.py` uses a real
+PTY to check native key and focus-in handoff, background replay, and unchanged
+cmux reclaim. Pipe it to `python3 -` over SSH to probe an older remote binary.
 
 ## Correctness is a settled property, not a per-frame one
 
@@ -152,7 +164,7 @@ size again and no further callback ever comes. Two things close that hole:
   liveness edges (a pass on the probe's own move-to-window, same-instant
   frame sampling) were tried and proved unnecessary on this architecture.
 
-## One tmux window shown in more than one place: clamp to the smallest
+## Newer tmux per-window claims: clamp to the smallest
 
 A tmux window can be displayed at two different sizes at once — most obviously
 when the same window is mirrored in two macOS windows (drag a tab across
@@ -394,10 +406,12 @@ painted, so the panes never quite fit however cleanly the rest settled.
   already does well. We keep bonsplit as the renderer and instead make the claim
   agree with it (shared chrome config) and impose the tmux-assigned extents on it.
 
-- **One client size + `window-size latest` (all windows follow).** Simple, but
+- **One client size + `window-size latest` on newer servers (all windows follow).** Simple, but
   O(N): one change resizes every window in the session, fanning out layout events
   under churn. Rejected in favor of per-window `refresh-client -C` pins on the
-  visible window only (O(1)); same visual result without the fan-out.
+  visible window only (O(1)); same visual result without the fan-out. Older
+  servers lack those pins and use the interaction-based compatibility path
+  described above.
 
 - **Let NSSplitView's built-in minimum pane sizes stand.** Its minimums caused
   the wrong behavior (a 1-column tmux pane rendered wider than assigned); tmux is

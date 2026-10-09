@@ -150,6 +150,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// portal-hosted panels churn, and its superview chain is the real
     /// ancestor stack that produced the SwiftUI proposal.
     @ObservationIgnored weak var hostProbeView: NSView?
+    @ObservationIgnored var isOuterFocusedForSizing = false
     /// Set when the divider sync sends a resize-pane between a drag session's
     /// begin and end. Bonsplit delivers the final drag geometry notification
     /// just BEFORE drag-end (the delegate contract: settled geometry is
@@ -454,6 +455,12 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
 
     private func configurePanePanel(_ panel: TerminalPanel, paneId: Int, needsSeed: Bool) {
         let surface = panel.surface
+        let previousExplicitInput = surface.onExplicitInput
+        surface.onExplicitInput = { [weak self] in
+            previousExplicitInput?()
+            guard let self, !self.isTornDown else { return }
+            _ = self.connection?.activateWindowSizing(windowId: self.windowId, ownerId: self.panelId)
+        }
         surface.onManualSizeApplied = { [weak self] in
             self?.handleSizingSample($0, paneId: paneId)
             self?.onPaneSurfaceProgress?(paneId)
@@ -495,6 +502,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     func setActivePane(_ paneId: Int, fromTmux: Bool) {
         guard layout.paneIDsInOrder.contains(paneId) else { return }
         if !fromTmux {
+            _ = connection?.activateWindowSizing(windowId: windowId, ownerId: panelId)
             if pendingControlPaneFocusRequest?.paneID == paneId {
                 projectActivePane(paneId)
                 return

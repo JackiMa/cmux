@@ -414,6 +414,8 @@ extension RemoteTmuxControlConnection {
         // recovery after that peer leaves.
         windowClaimParityRearmsSpent.removeAll()
         if !supportsPerWindowSize {
+            _ = send("set-option -g focus-events on")
+            _ = send("refresh-client -f ignore-size")
             legacyWindowSizingConfigured.removeAll()
             for windowId in lastWindowSizes.keys.sorted() {
                 configureLegacyWindowSizing(windowId: windowId)
@@ -454,8 +456,9 @@ extension RemoteTmuxControlConnection {
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),
     /// which is binary-safe and needs no shell quoting.
     @discardableResult
-    func sendKeys(paneId: Int, data: Data) -> Bool {
+    func sendKeys(paneId: Int, data: Data, claimsSizing: Bool = true) -> Bool {
         guard !data.isEmpty else { return true }
+        if claimsSizing, !activatePaneSizing(paneId: paneId) { return false }
         let hex = Self.hexByteArguments(data)
         return sendInternal("send-keys -t %\(paneId) -H \(hex)", kind: .other)
     }
@@ -463,8 +466,9 @@ extension RemoteTmuxControlConnection {
     /// Sends a physical named key and lets tmux encode it for the target pane's
     /// advertised terminal and live input modes.
     @discardableResult
-    func sendKey(paneId: Int, key: RemoteTmuxKeyName) -> Bool {
-        sendInternal("send-keys -t %\(paneId) \(key.value)", kind: .other)
+    func sendKey(paneId: Int, key: RemoteTmuxKeyName, claimsSizing: Bool = true) -> Bool {
+        if claimsSizing, !activatePaneSizing(paneId: paneId) { return false }
+        return sendInternal("send-keys -t %\(paneId) \(key.value)", kind: .other)
     }
 
     nonisolated static func hexByteArguments(_ data: Data) -> String {
