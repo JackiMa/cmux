@@ -65,6 +65,11 @@ the final refresh immediately commits the resize, including unchanged client
 dimensions. Ordinary terminal input, resize, or reported focus-in can then
 hand sizing back to a native client while cmux remains connected.
 
+Session-owned projected panes delegate explicit control focus, text and key
+commands to the same window-mirror mutation owner. This covers socket/CLI
+actions as well as the visible terminal, without treating manual protocol
+replies as user input.
+
 Background geometry, protocol replies, and reconnect or peer-detach replay
 never select a window. Manual I/O carries terminal replies as well as keyboard
 bytes, so activation uses the surface's accepted-explicit-input callback;
