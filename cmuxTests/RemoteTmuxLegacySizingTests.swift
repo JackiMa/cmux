@@ -276,6 +276,7 @@ struct RemoteTmuxLegacySizingTests {
         }
 
         func command(_ text: String) async throws {
+            print("Sizing fixture command: \(text)")
             let succeeded = await withCheckedContinuation { continuation in
                 if !connection.sendTracked(text, completion: { continuation.resume(returning: $0) }) {
                     continuation.resume(returning: false)
