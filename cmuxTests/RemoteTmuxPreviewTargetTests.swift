@@ -24,6 +24,10 @@ struct RemoteTmuxPreviewTargetTests {
     }
 
     @Test func missingContext() {
+        #expect(RemoteTmuxPreviewTarget(raw: "/srv/图像 outputs/a.png", cwd: nil, home: nil)
+            == .remoteFile(absolutePOSIXPath: "/srv/图像 outputs/a.png"))
+        #expect(RemoteTmuxPreviewTarget(raw: "图像 outputs/a.png", cwd: "/srv/project", home: nil)
+            == .remoteFile(absolutePOSIXPath: "/srv/project/图像 outputs/a.png"))
         #expect(RemoteTmuxPreviewTarget(raw: "fig.png", cwd: nil, home: nil) == .needsRemoteDirectory)
         #expect(RemoteTmuxPreviewTarget(raw: "~/fig.png", cwd: nil, home: nil) == .needsRemoteHome)
         #expect(RemoteTmuxPreviewTarget(raw: "~other/fig.png", cwd: "/srv", home: "/home/user") == .invalid)

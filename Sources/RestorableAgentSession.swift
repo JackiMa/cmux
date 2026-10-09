@@ -875,7 +875,9 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
 struct RestorableAgentSessionIndex: Sendable {
     static let empty = RestorableAgentSessionIndex(entriesByPanel: [:], isComplete: true)
-    static let unavailable = RestorableAgentSessionIndex(entriesByPanel: [:], isComplete: false)
+    static let unavailable = RestorableAgentSessionIndex(
+        entriesByPanel: [:], isComplete: false, processCensusIsAvailable: false
+    )
 
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
@@ -990,6 +992,9 @@ struct RestorableAgentSessionIndex: Sendable {
     /// Missing files are complete (the agent kind may not be installed); a
     /// present but unreadable/invalid file is incomplete and unsafe for auto-resume.
     let isComplete: Bool
+    /// A failed or incomplete process census is transient, unlike an unreadable
+    /// durable hook store. Admission must wait for a complete census before launch.
+    let processCensusIsAvailable: Bool
     /// Agent kinds whose present hook-store file was unreadable or invalid.
     /// Owners are recorded per kind and process-detected owners come from no
     /// store, so a corrupt store for one kind cannot hide a live owner of
@@ -1545,6 +1550,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 processIdentityProvider: processIdentityProvider
             ),
             isComplete: self.isComplete,
+            processCensusIsAvailable: self.processCensusIsAvailable,
             incompleteHookStoreKinds: self.incompleteHookStoreKinds,
             incompleteCodexPanelKeys: self.incompleteCodexPanelKeys,
             verifiedCodexPanelKeys: self.verifiedCodexPanelKeys,
@@ -3456,6 +3462,7 @@ struct RestorableAgentSessionIndex: Sendable {
         entriesByPanel: [PanelKey: Entry],
         liveSessionOwners: LiveAgentSessionOwnerIndex = .empty,
         isComplete: Bool = true,
+        processCensusIsAvailable: Bool = true,
         incompleteHookStoreKinds: Set<RestorableAgentKind> = [],
         incompleteCodexPanelKeys: Set<PanelKey> = [],
         verifiedCodexPanelKeys: Set<PanelKey> = [],
@@ -3464,6 +3471,7 @@ struct RestorableAgentSessionIndex: Sendable {
         self.entriesByPanel = entriesByPanel
         self.liveSessionOwners = liveSessionOwners
         self.isComplete = isComplete
+        self.processCensusIsAvailable = processCensusIsAvailable
         self.incompleteHookStoreKinds = incompleteHookStoreKinds
         self.incompleteCodexPanelKeys = incompleteCodexPanelKeys
         self.incompleteCodexPanelIds = Set(incompleteCodexPanelKeys.map(\.panelId))

@@ -520,11 +520,9 @@ extension DockSplitStore {
                 currentProcessIdentity: Workspace.agentPIDProcessIdentity(pid:)
             )
         }
-        let coordinated = restoredAgentLifecycle.continuationSnapshot(
-            panelId: panelId,
-            observation: observation,
-            currentProcessIdentity: Workspace.agentPIDProcessIdentity(pid:)
-        )
+        // Completion ends the old process; the panel keeps its session binding
+        // until another command or an explicit mutation replaces it.
+        let coordinated = restoredAgentLifecycle.snapshotsByPanelId[panelId]
         let observed = restoredAgentLifecycle.resumeStatesByPanelId[panelId] == .completedAgentExit
             ? nil
             : observation?.snapshot

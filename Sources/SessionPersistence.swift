@@ -1730,6 +1730,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+    var remoteTmux: SessionRemoteTmuxWorkspaceSnapshot? = nil
     /// cmux-tui cloud machine binding; absent in manifests written before the Cloud tree and for
     /// workspaces that are not cloud machines.
     var cloudVM: SessionCloudVMBindingSnapshot? = nil

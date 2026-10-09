@@ -41,6 +41,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
             }
             .onAppear {
                 mirror.isVisibleForSizing = isVisibleInUI
+                mirror.isOuterFocusedForSizing = isOuterFocused
                 if !isVisibleInUI {
                     mirror.cancelPendingControlPaneFocus()
                     mirror.cancelPendingCreatedPaneFocus()
@@ -59,11 +60,20 @@ struct RemoteTmuxWindowMirrorSplitView: View {
             .onChange(of: isVisibleInUI) { _, visible in
                 mirror.isVisibleForSizing = visible
                 if !visible {
+                    mirror.connection?.deactivateWindowSizing(windowId: mirror.windowId, ownerId: mirror.panelId)
                     mirror.cancelPendingControlPaneFocus()
                     mirror.cancelPendingCreatedPaneFocus()
                 }
                 mirror.bonsplitController.isInteractive = visible
                 if visible { becameVisible() }
+            }
+            .onChange(of: isOuterFocused) { _, focused in
+                mirror.isOuterFocusedForSizing = focused
+                if focused {
+                    mirror.activateSizingIfForeground()
+                } else {
+                    mirror.connection?.deactivateWindowSizing(windowId: mirror.windowId, ownerId: mirror.panelId)
+                }
             }
             .onChange(of: mirror.layoutStructureVersion) { _, _ in
                 pushClientSize(pointSize: containerSize)
@@ -99,6 +109,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                 .onTapGesture {
                     onOuterFocus()
                     mirror.bonsplitController.focusPane(paneId)
+                    _ = mirror.connection?.activateWindowSizing(windowId: mirror.windowId, ownerId: mirror.panelId)
                 }
             } else {
                 Color(nsColor: appearance.backgroundColor)
@@ -134,6 +145,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     private func becameVisible() {
         pushClientSize(pointSize: containerSize)
         mirror.setNeedsSizingPassIgnoringInputs()
+        mirror.activateSizingIfForeground()
     }
 }
 
@@ -143,6 +155,14 @@ struct RemoteTmuxWindowMirrorSplitView: View {
 /// geometry diagnostics.
 final class MirrorHostProbeView: NSView {
     weak var mirror: RemoteTmuxWindowMirror?
+    private var keyWindowTasks: [Task<Void, Never>] = []
+
+    deinit { keyWindowTasks.forEach { $0.cancel() } }
+
+    override func viewWillStartLiveResize() {
+        super.viewWillStartLiveResize()
+        mirror?.activateSizingIfForeground()
+    }
 
     /// The probe backs the whole mirror region, including the sub-cell
     /// margin outside the split tree; it must never swallow a click there.
@@ -162,6 +182,8 @@ final class MirrorHostProbeView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        keyWindowTasks.forEach { $0.cancel() }
+        keyWindowTasks.removeAll()
         guard window != nil else {
             // A tab re-show can recreate the probe, and AppKit delivers the
             // DYING probe's move-to-nil-window after the replacement already
@@ -169,10 +191,45 @@ final class MirrorHostProbeView: NSView {
             // window handle with a windowless view until the next SwiftUI
             // update. Only the currently registered probe may clear the
             // slot; a stale probe changes nothing.
-            if mirror?.hostProbeView === self { mirror?.hostProbeView = nil }
+            if let mirror, mirror.hostProbeView === self {
+                mirror.connection?.deactivateWindowSizing(windowId: mirror.windowId, ownerId: mirror.panelId)
+                mirror.hostProbeView = nil
+            }
             return
         }
         mirror?.hostProbeView = self
+        mirror?.activateSizingIfForeground()
+        for name in [NSWindow.didBecomeKeyNotification, NSApplication.didBecomeActiveNotification] {
+            keyWindowTasks.append(Task { @MainActor [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: name) {
+                    guard let self else { return }
+                    guard self.mirror?.hostProbeView === self else { continue }
+                    if name == NSWindow.didBecomeKeyNotification,
+                       (notification.object as? NSWindow) !== self.window { continue }
+                    self.mirror?.activateSizingIfForeground()
+                }
+            })
+        }
+        for name in [NSWindow.didResignKeyNotification, NSApplication.didResignActiveNotification] {
+            keyWindowTasks.append(Task { @MainActor [weak self] in
+                for await notification in NotificationCenter.default.notifications(named: name) {
+                    guard let self else { return }
+                    guard let mirror = self.mirror, mirror.hostProbeView === self else { continue }
+                    if name == NSWindow.didResignKeyNotification,
+                       (notification.object as? NSWindow) !== self.window { continue }
+                    mirror.connection?.deactivateWindowSizing(windowId: mirror.windowId, ownerId: mirror.panelId)
+                }
+            })
+        }
+    }
+}
+
+extension RemoteTmuxWindowMirror {
+    /// Visible background windows and remote layout echoes never take ownership.
+    func activateSizingIfForeground(applicationIsActive: Bool? = nil) {
+        guard (applicationIsActive ?? NSApp.isActive), isVisibleForSizing, isOuterFocusedForSizing,
+              visibleHostingContext()?.window?.isKeyWindow == true else { return }
+        _ = connection?.activateWindowSizing(windowId: windowId, ownerId: panelId)
     }
 }
 

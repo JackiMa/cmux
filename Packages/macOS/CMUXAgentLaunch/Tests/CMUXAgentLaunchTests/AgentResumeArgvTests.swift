@@ -3,6 +3,40 @@ import Testing
 
 @Suite("AgentResumeArgv")
 struct AgentResumeArgvTests {
+    @Test("Claude preserves the explicit empty tools list through capture and resume")
+    func claudeResumeKeepsEmptyToolList() throws {
+        let captured = try #require(AgentLaunchSanitizer.sanitizedLaunchArguments(
+            ["claude", "--tools", "", "--model", "sonnet"],
+            launcher: "claude",
+            fallbackKind: "claude"
+        ))
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "claude", sessionId: "saved-session", executablePath: nil, arguments: captured
+            ) == ["claude", "--resume", "saved-session", "--tools", "", "--model", "sonnet"]
+        )
+    }
+
+    @Test("Grok resumes the saved conversation without new-session selectors", arguments: [
+        ["--session-id", "new-session"],
+        ["-s", "new-session"],
+        ["--session-id=new-session"],
+        ["-s=new-session"],
+        ["--resume", "parent-session", "--fork-session", "--session-id", "new-session"],
+        // Older captures kept the flag but dropped its value as a positional prompt.
+        ["--session-id"],
+    ])
+    func grokResumeDropsNewSessionSelectors(selectors: [String]) {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "grok",
+                sessionId: "saved-session",
+                executablePath: "/opt/bin/grok",
+                arguments: ["/opt/bin/grok"] + selectors + ["--model", "grok-4", "--sandbox", "read-only"]
+            ) == ["/opt/bin/grok", "-r", "saved-session", "--model", "grok-4", "--sandbox", "read-only"]
+        )
+    }
+
     @Test("Built-in --option style kinds", arguments: [
         ("claude", "claude", ["claude", "--resume", "SID"]),
         ("grok", "grok", ["grok", "-r", "SID"]),

@@ -30,7 +30,7 @@ extension RemoteTmuxSessionMirror {
             #endif
             return false
         }
-        return connection.sendKeys(paneId: tmuxPaneID, data: data)
+        return connection.sendKeys(paneId: tmuxPaneID, data: data, claimsSizing: false)
     }
 
     /// Sends a validated key only while the pane remains part of this session mirror.
@@ -41,6 +41,6 @@ extension RemoteTmuxSessionMirror {
             #endif
             return false
         }
-        return connection.sendKey(paneId: tmuxPaneID, key: key)
+        return connection.sendKey(paneId: tmuxPaneID, key: key, claimsSizing: false)
     }
 }

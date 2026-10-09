@@ -31,9 +31,10 @@ private enum AgentRestoreAdmissionDecision: Sendable {
 /// Each reason carries its own explanation so the CLI shows the user what
 /// actually failed. A scan that ran out of time is worth retrying; an
 /// unreadable hook store for this agent kind is not.
-private enum AgentRestoreAdmissionUnverifiableReason: String, Sendable {
+enum AgentRestoreAdmissionUnverifiableReason: String, Sendable {
     case scanTimedOut = "scan_timed_out"
     case scanCancelled = "scan_cancelled"
+    case scanUnavailable = "scan_unavailable"
     case hookStoreUnreadable = "hook_store_unreadable"
 
     var isRetryable: Bool {
@@ -47,7 +48,7 @@ private enum AgentRestoreAdmissionUnverifiableReason: String, Sendable {
                 localized: "agentRestore.admission.unavailable.timedOut",
                 defaultValue: "cmux could not finish checking whether this agent session is already running before the time limit. Retry 'cmux restore --surface'."
             )
-        case .scanCancelled:
+        case .scanCancelled, .scanUnavailable:
             return String(
                 localized: "agentRestore.admission.unavailable",
                 defaultValue: "cmux could not verify whether this agent session is already running. Retry 'cmux restore --surface'."
@@ -114,15 +115,16 @@ extension TerminalController {
                 startedAt: admissionStart
             )
         }
-        guard index.isComplete(
-            forWorkspaceId: inputs.workspaceID,
-            panelId: inputs.surfaceID,
+        if let reason = Self.agentRestoreIndexFailure(
+            index,
+            workspaceID: inputs.workspaceID,
+            surfaceID: inputs.surfaceID,
             kind: inputs.kind
-        ) else {
+        ) {
             return Self.agentRestoreAdmissionResponse(
                 request: request,
                 inputs: inputs,
-                decision: .unverifiable(.hookStoreUnreadable),
+                decision: .unverifiable(reason),
                 startedAt: admissionStart
             )
         }
@@ -167,6 +169,18 @@ extension TerminalController {
             decision: decision,
             startedAt: admissionStart
         )
+    }
+
+    /// Classifies incomplete ownership evidence before any launch claim is made.
+    nonisolated static func agentRestoreIndexFailure(
+        _ index: RestorableAgentSessionIndex,
+        workspaceID: UUID,
+        surfaceID: UUID,
+        kind: String
+    ) -> AgentRestoreAdmissionUnverifiableReason? {
+        guard index.processCensusIsAvailable else { return .scanUnavailable }
+        return index.isComplete(forWorkspaceId: workspaceID, panelId: surfaceID, kind: kind)
+            ? nil : .hookStoreUnreadable
     }
 
     /// Releases a pre-exec claim only when the requesting CLI owns its token.

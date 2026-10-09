@@ -295,7 +295,8 @@ final class RemoteTmuxController {
         host: RemoteTmuxHost,
         sessionName: String,
         sessionId: Int? = nil,
-        into tabManager: TabManager
+        into tabManager: TabManager,
+        restoring restoredWorkspace: Workspace? = nil
     ) throws -> Bool {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         guard sessionMirrors[key] == nil else { return false }
@@ -305,6 +306,19 @@ final class RemoteTmuxController {
             connection: RemoteTmuxControlConnection,
             workspace: Workspace
         )? in
+            let pendingWorkspace = restoredWorkspace ?? tabManager.tabs.first {
+                $0.isRemoteTmuxMirror && $0.remoteTmuxSessionMirror == nil &&
+                    $0.remoteTmuxRestoration?.host == host &&
+                    $0.remoteTmuxRestoration?.sessionName == sessionName
+            }
+            if let pendingWorkspace {
+                guard !pendingWorkspace.isRetiredFromOwningTabManager,
+                      tabManager.tabs.contains(where: { $0 === pendingWorkspace }),
+                      pendingWorkspace.remoteTmuxRestoration?.host == host,
+                      pendingWorkspace.remoteTmuxRestoration?.sessionName == sessionName else { return nil }
+                let connection = try attach(host: host, sessionName: sessionName)
+                return (connection: connection, workspace: pendingWorkspace)
+            }
             let connection = try attach(host: host, sessionName: sessionName)
             guard let workspace = tabManager.addWorkspaceIfActive(
                 title: sessionName,

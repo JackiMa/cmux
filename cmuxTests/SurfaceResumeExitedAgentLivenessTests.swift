@@ -10,9 +10,9 @@ import Testing
 
 @Suite(.serialized)
 struct SurfaceResumeExitedAgentLivenessTests {
-    @Test("Exited hook process does not auto-resume from an unknown shell state")
+    @Test("Bound session restores after its hook process exits")
     @MainActor
-    func exitedHookProcessDoesNotAutoResumeFromUnknownShellState() throws {
+    func exitedHookProcessRetainsBoundSessionRestore() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-exited-agent-resume-\(UUID().uuidString)", isDirectory: true)
@@ -71,16 +71,16 @@ struct SurfaceResumeExitedAgentLivenessTests {
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
 
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
-        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
         #expect(
             restored.sessionSnapshot(includeScrollback: false)
                 .panels.first?.terminal?.agent?.sessionId == sessionID
         )
     }
 
-    @Test("Newer agent binding and shell activity do not override cached exited process")
+    @Test("Bound session restores regardless of cached exited process")
     @MainActor
-    func newerAgentBindingAndShellActivityDoNotOverrideCachedExitedProcess() throws {
+    func boundSessionRestoresRegardlessOfCachedExitedProcess() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-newer-agent-binding-resume-\(UUID().uuidString)", isDirectory: true)
@@ -138,7 +138,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
 
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
-        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
     }
 
     @Test("Exact live runtime PID overrides cached exited process")
@@ -322,7 +322,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
 
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
-        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
     }
 
     @Test("Autosave fingerprint includes agent process liveness")

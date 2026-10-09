@@ -235,7 +235,8 @@ extension DockSplitStore {
             snapshot,
             workspaceId: workspaceId
         )
-        guard let terminalSnapshot = snapshot.terminal else { return nil }
+        guard let savedTerminalSnapshot = snapshot.terminal else { return nil }
+        let terminalSnapshot = savedTerminalSnapshot.reconcilingAgentBindingForRestore(surfaceID: snapshot.id)
         let policy = Workspace.makeSessionRestorePolicyService()
         let localTmuxStartCommand = policy.localTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
         let restorableAgent = localTmuxStartCommand == nil
@@ -286,17 +287,20 @@ extension DockSplitStore {
         recoveryObservationsByPanelId[snapshot.id] = recoveryObservation
         let recoveryPlan = terminalSnapshot.recoveryPlan(
             surfaceID: snapshot.id,
-            claimedOwnerSurfaceID: recoveryObservation.agent.flatMap { recoveryPlannedAgentOwners[$0] }
+            claimedOwnerSurfaceID: terminalSnapshot.boundAgentIdentityForRestore.flatMap { recoveryPlannedAgentOwners[$0] }
         )
         let shouldAutoResumeAgent: Bool = {
             guard AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults),
                   case .resumeAgent = recoveryPlan.action else { return false }
             return true
         }()
-        if shouldAutoResumeAgent, let agent = recoveryObservation.agent {
+        if shouldAutoResumeAgent, let agent = terminalSnapshot.boundAgentIdentityForRestore {
             recoveryPlannedAgentOwners[agent] = snapshot.id
         }
-        let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
+        let restoresBoundLocalAgent = shouldAutoResumeAgent &&
+            terminalSnapshot.hasLocalBoundAgentBindingForRestore &&
+            terminalSnapshot.isRemoteTerminal != true && hibernation == nil
+        let shouldCheckAgentOwnership = !restoresBoundLocalAgent && shouldAutoResumeAgent &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
         let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
         let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex == nil
@@ -361,7 +365,10 @@ extension DockSplitStore {
             stablePanelHasLiveProcess
             ? nil
             : approvedResumeBinding.flatMap {
-                policy.surfaceResumeStartupLaunch(
+                if restoresBoundLocalAgent {
+                    return $0.boundAgentStartupLaunch()
+                }
+                return policy.surfaceResumeStartupLaunch(
                     forApprovedBinding: $0
                 )
             }

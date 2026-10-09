@@ -175,26 +175,23 @@ extension RemoteTmuxSessionMirror {
               let windowMirror = windowMirrorByWindowId[windowID] else {
             return false
         }
-        return windowMirror.requestControlFocus(
-            pane: tmuxPaneID,
-            sendTracked: { [connection] command, trackedCompletion in
-                connection.sendTracked(command, completion: trackedCompletion)
-            },
-            completion: completion
-        )
+        return windowMirror.controlFocus(pane: tmuxPaneID, completion: completion)
     }
 
     func sendInput(toPane tmuxPaneID: Int, text: String) -> Bool {
-        guard let data = text.data(using: .utf8) else { return false }
-        return sendInputBytes(data, toPane: tmuxPaneID)
+        guard let windowID = windowIdByPane[tmuxPaneID],
+              let windowMirror = windowMirrorByWindowId[windowID] else { return false }
+        return windowMirror.sendInput(toPane: tmuxPaneID, text: text)
     }
 
     func sendKey(
         toPane tmuxPaneID: Int,
         name: String
     ) -> RemoteTmuxControlKeySendResult {
-        guard let key = RemoteTmuxKeyName(rawName: name) else { return .unknownKey }
-        return sendNamedKey(key, toPane: tmuxPaneID) ? .sent : .rejected
+        guard RemoteTmuxKeyName(rawName: name) != nil else { return .unknownKey }
+        guard let windowID = windowIdByPane[tmuxPaneID],
+              let windowMirror = windowMirrorByWindowId[windowID] else { return .rejected }
+        return windowMirror.sendKey(toPane: tmuxPaneID, name: name)
     }
 
     func requestSplit(

@@ -188,7 +188,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         self.onControlSurfaceRemoved = onControlSurfaceRemoved
         self.tabManager = tabManager
         self.workspace = workspace
-        self.defaultPanelIds = Array(workspace.panels.keys)
+        self.defaultPanelIds = workspace.panels.values.compactMap { ($0 as? TerminalPanel)?.id }
         workspace.remoteTmuxSessionMirror = self
         self.paneInputForwarder = RemoteTmuxPaneInputForwarder(
             isActive: connection.connectionState == .connected,

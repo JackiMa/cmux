@@ -51,9 +51,10 @@ extension SurfaceResumeBindingSnapshot {
     }
 
     func restoreStartupInput(
-        repairPortableAgentExecutable: Bool
+        repairPortableAgentExecutable: Bool,
+        useLocalRestoreVerb: Bool = true
     ) -> String? {
-        if usesLocalRestoreVerb {
+        if useLocalRestoreVerb && usesLocalRestoreVerb {
             // Bare words (` cmux restore <kind> <id>`): parses identically in
             // POSIX shells and nushell, no dialect handling needed.
             return localRestoreCLIInput

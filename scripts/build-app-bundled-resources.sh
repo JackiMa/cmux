@@ -25,6 +25,13 @@ CMUX_CUA_HELPER_OWNER_MARKER="${CMUX_CUA_HELPER_APP}/Contents/Resources/.cmux-cu
 CMUX_CUA_HELPER_EXEC="${CMUX_CUA_HELPER_APP}/Contents/MacOS/cmux-cua"
 INFO_PLIST="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
 
+# SwiftPM looks beside a command-line executable for its package resources.
+# Xcode embeds this bundle in the app's Resources directory; expose the same
+# bundle beside Resources/bin/cmux without maintaining a second copy. Do this
+# before the helper-build cache check so warm builds repair a missing link.
+mkdir -p "$BIN_DEST"
+ln -sfn ../CmuxFoundation_CmuxFoundation.bundle "$BIN_DEST/CmuxFoundation_CmuxFoundation.bundle"
+
 run_git() (
   unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
   unset GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX

@@ -180,7 +180,9 @@ extension AgentLaunchSanitizer {
 
     static func variadicValueCanContinue(_ value: String, policy: Policy) -> Bool {
         guard policy.scansOptionsPastPositionals else { return true }
-        return looksLikeGreedyOptionalValue(value)
+        // An explicit empty argv value can disable tools or clear a list. It is
+        // distinct from a missing value and must survive capture and replay.
+        return value.isEmpty || looksLikeGreedyOptionalValue(value)
     }
 
     static func looksLikeOptionalValue(_ value: String, following: String?) -> Bool {

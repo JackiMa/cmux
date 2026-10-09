@@ -911,7 +911,8 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["activePromptTurnIds"] as? [String] == ["turn-active"])
     }
 
-    @Test func codexSessionStartRefreshesCompletedPriorTurn() throws {
+    @Test(arguments: ["completed", "idle", "running"])
+    func codexSessionStartRefreshesPriorProcessTurn(priorState: String) throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-fresh-start-\(UUID().uuidString)", isDirectory: true)
@@ -950,6 +951,16 @@ struct CLICodexHookTimeoutRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
+        // Reopening replaces the process even if the old hook record still
+        // contains prompt depth (including a Stop already recorded as idle).
+        let previousProcess = Process()
+        previousProcess.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try previousProcess.run()
+        previousProcess.waitUntilExit()
+        let previousPID = Int(previousProcess.processIdentifier)
+        let resumedPID = Int(ProcessInfo.processInfo.processIdentifier)
+        let hasStalePromptDepth = priorState != "completed"
+        let priorRuntimeStatus = priorState == "running" ? "running" : "idle"
         let now = Date().timeIntervalSince1970
         let store: [String: Any] = [
             "version": 1,
@@ -959,9 +970,11 @@ struct CLICodexHookTimeoutRegressionTests {
                     "workspaceId": workspaceId,
                     "surfaceId": surfaceId,
                     "cwd": root.path,
-                    "pid": 1,
-                    "agentLifecycle": "idle",
-                    "runtimeStatus": "idle",
+                    "pid": previousPID,
+                    "agentLifecycle": priorRuntimeStatus,
+                    "runtimeStatus": priorRuntimeStatus,
+                    "activePromptDepth": hasStalePromptDepth ? 1 : 0,
+                    "activePromptTurnIds": hasStalePromptDepth ? ["turn-done"] : [],
                     "lastPromptTurnId": "turn-done",
                     "terminalPromptTurnIds": ["turn-done"],
                     "startedAt": now,
@@ -977,7 +990,7 @@ struct CLICodexHookTimeoutRegressionTests {
             surfaceId: surfaceId,
             connectionLimit: 8,
             processBinding: CodexHookMockProcessBinding(
-                processID: 4242,
+                processID: resumedPID,
                 workspaceID: workspaceId,
                 surfaceID: surfaceId
             )
@@ -996,7 +1009,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CODEX_HOME": codexHome.path,
-                "CMUX_CODEX_PID": "4242",
+                "CMUX_CODEX_PID": String(resumedPID),
             ],
             standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
             timeout: 5
@@ -1018,6 +1031,9 @@ struct CLICodexHookTimeoutRegressionTests {
         let session = try #require(sessions[sessionId] as? [String: Any])
         #expect(session["agentLifecycle"] as? String == "unknown")
         #expect(session["runtimeStatus"] as? String == "running")
+        #expect(session["pid"] as? Int == resumedPID)
+        #expect(session["activePromptDepth"] == nil)
+        #expect(session["activePromptTurnIds"] == nil)
         #expect(session["lastPromptTurnId"] == nil)
         #expect(session["terminalPromptTurnIds"] as? [String] == ["turn-done"])
 
@@ -1034,7 +1050,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_SURFACE_ID": surfaceId,
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
-                "CMUX_CODEX_PID": "1",
+                "CMUX_CODEX_PID": String(previousPID),
             ],
             standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-done","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"late"}"#,
             timeout: 5

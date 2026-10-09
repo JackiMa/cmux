@@ -59,7 +59,7 @@ struct TerminalLinkOpenCoordinator {
 
         if let sourcePanelId = request.sourcePanelId,
            let context = container?.remoteTmuxPreviewContext(for: sourcePanelId) {
-            let target = RemoteTmuxPreviewTarget(raw: request.rawValue, cwd: context.cwd, home: nil)
+            let target = RemoteTmuxPreviewTarget(raw: request.rawValue, cwd: nil, home: nil)
             if case .publicWeb = target {
                 // Public URLs keep the existing browser and cloud routing policy.
             } else {
@@ -170,16 +170,31 @@ struct TerminalLinkOpenCoordinator {
             return true
         }
         Task { @MainActor in
+            var attemptedTarget = raw
             do {
                 var target = initialTarget
+                if case .needsRemoteDirectory = target {
+                    // The subscription cache can lag behind a remote cd.
+                    // Query the clicked pane, independently of local focus/cwd.
+                    let result = try await controller.transport(for: context.host).runTmux([
+                        "display-message", "-p", "-t", "%\(context.paneId)", "-F", "#{pane_current_path}"
+                    ])
+                    let cwd = result.stdout.trimmingCharacters(in: .newlines)
+                    guard result.succeeded, cwd.hasPrefix("/"),
+                          !cwd.contains("\n"), !cwd.contains("\r"), !cwd.contains("\0") else {
+                        throw RemoteTmuxPreviewError.remoteDirectoryUnavailable
+                    }
+                    target = RemoteTmuxPreviewTarget(raw: raw, cwd: cwd, home: nil)
+                }
                 if case .needsRemoteHome = target {
                     let home = try await controller.previewFetcher.remoteHome(host: context.host)
-                    target = RemoteTmuxPreviewTarget(raw: raw, cwd: context.cwd, home: home)
+                    target = RemoteTmuxPreviewTarget(raw: raw, cwd: nil, home: home)
                 }
                 switch target {
                 case .remoteFile(let path):
+                    attemptedTarget = path
                     let localFile = try await controller.previewFetcher.fetch(
-                        path: path, cwd: context.cwd, host: context.host
+                        path: path, cwd: nil, host: context.host
                     )
                     guard let container = containerResolver(request.sourceWorkspaceId, sourcePanelId) else {
                         showRemoteTmuxLinkError(path, reason: .sourcePaneClosed)
@@ -187,7 +202,7 @@ struct TerminalLinkOpenCoordinator {
                     }
                     if ["html", "htm"].contains(localFile.pathExtension.lowercased()) {
                         guard container.openTerminalBrowserLink(
-                            url: localFile, sourcePanelId: sourcePanelId, focus: true
+                            url: localFile, sourcePanelId: sourcePanelId, focus: request.focus
                         ) else {
                             showRemoteTmuxLinkError(path, reason: .browserUnavailable)
                             return
@@ -197,14 +212,14 @@ struct TerminalLinkOpenCoordinator {
                         if let rightPane = workspace.preferredRightSideTargetPane(
                             fromPanelId: location.containerPanelID
                         ), !workspace.openFileSurfaces(
-                            inPane: rightPane, filePaths: [localFile.path], focus: true
+                            inPane: rightPane, filePaths: [localFile.path], focus: request.focus
                         ).isEmpty {
                             return
                         }
                         if let sourcePane = workspace.paneId(forPanelId: location.containerPanelID),
                            workspace.splitPaneWithFilePreview(
                                targetPane: sourcePane, orientation: .horizontal,
-                               insertFirst: false, filePath: localFile.path
+                               insertFirst: false, filePath: localFile.path, focus: request.focus
                            ) != nil {
                             return
                         }
@@ -216,13 +231,14 @@ struct TerminalLinkOpenCoordinator {
                     let localURL = try await controller.loopbackForwarder.forwardedURL(
                         remoteURL, host: context.host
                     )
-                    guard let container = containerResolver(request.sourceWorkspaceId, sourcePanelId),
-                          container.openTerminalBrowserLink(
-                              url: localURL, sourcePanelId: sourcePanelId, focus: true
+                    guard let workspace = containerResolver(request.sourceWorkspaceId, sourcePanelId) as? Workspace,
+                          let browser = workspace.openTerminalBrowserPanel(
+                              url: localURL, sourcePanelId: sourcePanelId, focus: request.focus
                           ) else {
                         showRemoteTmuxLinkError(raw, reason: .browserUnavailable)
                         return
                     }
+                    workspace.remoteTmuxPreviewURLsByPanelId[browser.id] = (remoteURL, localURL)
                 case .needsRemoteDirectory:
                     showRemoteTmuxLinkError(raw, reason: .remoteDirectoryUnavailable)
                 case .needsRemoteHome:
@@ -231,7 +247,7 @@ struct TerminalLinkOpenCoordinator {
                     showRemoteTmuxLinkError(raw, reason: .invalidLink)
                 }
             } catch {
-                showRemoteTmuxLinkError(raw, reason: .remoteDetail(error.localizedDescription))
+                showRemoteTmuxLinkError(attemptedTarget, reason: .remoteDetail(error.localizedDescription))
             }
         }
         return true

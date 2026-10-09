@@ -143,11 +143,55 @@ extension SessionTerminalPanelSnapshot {
         } else {
             snapshot.recovery = candidate
         }
-        return snapshot
+        return freshEvidence ? snapshot.reconcilingAgentBindingForRestore(surfaceID: surfaceID) : snapshot
+    }
+
+    /// A bound session retains automatic restore intent after its process exits.
+    func reconcilingAgentBindingForRestore(surfaceID: UUID) -> Self {
+        guard case .resumeAgent(let boundAgent) = recoveryPlan(surfaceID: surfaceID).action else {
+            return self
+        }
+        var candidate = self
+        for keyPath in [\Self.resumeBinding, \Self.managedAgentResumeBinding] {
+            guard var binding = candidate[keyPath: keyPath],
+                  binding.isAgentHookBinding, binding.autoResume == false,
+                  binding.approvalPolicy == nil || binding.approvalPolicy == .auto,
+                  TerminalRecoveryAgentIdentity(kind: binding.kind, sessionID: binding.checkpointId) == boundAgent
+            else { continue }
+            binding.autoResume = true
+            candidate[keyPath: keyPath] = binding
+        }
+        return candidate
+    }
+
+    /// The session still attached to this panel, independent of process liveness.
+    var boundAgentIdentityForRestore: TerminalRecoveryAgentIdentity? {
+        let binding = managedAgentResumeBinding ?? resumeBinding
+        let savedAgent = TerminalRecoveryAgentIdentity(kind: agent?.kind.rawValue, sessionID: agent?.sessionId)
+        let savedBinding = binding.flatMap {
+            $0.isAgentHookBinding || $0.hasCompleteManagedSessionIdentity
+                ? TerminalRecoveryAgentIdentity(kind: $0.kind, sessionID: $0.checkpointId)
+                : nil
+        }
+        if let savedAgent, let savedBinding, savedAgent != savedBinding {
+            return nil
+        }
+        return savedBinding ?? savedAgent
+    }
+
+    /// A saved local binding supplies its own exact launch target. Restoring
+    /// it does not require a process census of the previous execution.
+    var hasLocalBoundAgentBindingForRestore: Bool {
+        guard let boundAgent = boundAgentIdentityForRestore,
+              let binding = resumeBinding,
+              binding.isAgentHookBinding, binding.launchFlavor == .local else {
+            return false
+        }
+        return TerminalRecoveryAgentIdentity(kind: binding.kind, sessionID: binding.checkpointId) == boundAgent
     }
 
     func recoveryPlan(surfaceID: UUID? = nil, claimedOwnerSurfaceID: UUID? = nil) -> TerminalRecoveryPlan {
-        let observation = recovery ?? .migrated(from: self, surfaceID: surfaceID)
+        var observation = recovery ?? .migrated(from: self, surfaceID: surfaceID)
         let savedAgent = TerminalRecoveryAgentIdentity(kind: agent?.kind.rawValue, sessionID: agent?.sessionId)
         let savedBinding = TerminalRecoveryAgentIdentity(
             kind: (managedAgentResumeBinding ?? resumeBinding)?.kind,
@@ -157,10 +201,25 @@ extension SessionTerminalPanelSnapshot {
         let hasLocalTmux = tmuxStartCommand?.contains("CMUX_LOCAL_TMUX=1") == true
         let hasAttachment = remotePTYSessionID?.isEmpty == false ||
             hasLocalTmux || hibernation != nil
+        let binding = managedAgentResumeBinding ?? resumeBinding
+        if !hasAttachment, binding?.isAgentHookBinding == true,
+           binding?.autoResume != true, binding?.approvalPolicy == .manual {
+            return TerminalRecoveryPlan(action: .shell, reason: "agent binding requires manual resume")
+        }
         if !hasAttachment, observation.state == .agent,
            let observedAgent = observation.agent,
            (savedIdentities.isEmpty || savedIdentities.contains(where: { $0 != observedAgent })) {
             return TerminalRecoveryPlan(action: .shell, reason: "saved agent identity conflicts with recovery observation")
+        }
+        // Process observations describe the old execution. The panel's saved
+        // binding decides what to launch when the application reopens.
+        if let boundAgent = boundAgentIdentityForRestore {
+            observation.state = .agent
+            observation.agent = boundAgent
+            observation.diagnosticReason = nil
+        } else {
+            observation.state = .shell
+            observation.agent = nil
         }
         return TerminalRecoveryPlan.decide(
             observation: observation,
@@ -170,5 +229,17 @@ extension SessionTerminalPanelSnapshot {
             surfaceID: surfaceID,
             claimedOwnerSurfaceID: claimedOwnerSurfaceID
         )
+    }
+}
+
+extension SurfaceResumeBindingSnapshot {
+    /// Runs an approved saved binding through the managed wrapper, without
+    /// asking the CLI to infer process ownership again during app restore.
+    func boundAgentStartupLaunch() -> Workspace.SurfaceResumeStartupLaunch? {
+        guard isAgentHookBinding, launchFlavor == .local else { return nil }
+        return restoreStartupInput(
+            repairPortableAgentExecutable: true,
+            useLocalRestoreVerb: false
+        ).map(Workspace.SurfaceResumeStartupLaunch.input)
     }
 }
